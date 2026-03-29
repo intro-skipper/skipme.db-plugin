@@ -155,7 +155,7 @@ public class SegmentProvider : IMediaSegmentProvider
                 continue;
             }
 
-            if (entry.EndMs <= 0)
+            if (entry.StartMs <= 0 || entry.EndMs <= 0 || entry.StartMs > entry.EndMs)
             {
                 continue;
             }

@@ -41,7 +41,7 @@ public class Plugin : BasePlugin<PluginConfiguration>
     public override Guid Id => Guid.Parse("b2a63e62-0ac5-4575-9ad2-2c7534ccb83d");
 
     /// <inheritdoc/>
-    public override string Description => "Retrieves crowd-sourced segment timestamps from db.skipme.workers.dev";
+    public override string Description => "Retrieves crowd-sourced segment timestamps from the SkipMe.db API";
 
     /// <summary>
     /// Gets the current plugin instance.

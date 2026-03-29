@@ -12,10 +12,10 @@ using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model;
 using MediaBrowser.Model.MediaSegments;
 using Microsoft.Extensions.Logging;
-using Skipme.Db.Plugin.Models;
-using Skipme.Db.Plugin.Services;
+using SkipMe.Db.Plugin.Models;
+using SkipMe.Db.Plugin.Services;
 
-namespace Skipme.Db.Plugin.Providers;
+namespace SkipMe.Db.Plugin.Providers;
 
 /// <summary>
 /// Provides media segment timestamps sourced from the SkipMe.db crowd-sourced API.

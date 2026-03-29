@@ -3,7 +3,7 @@
 
 using MediaBrowser.Model.Plugins;
 
-namespace Skipme.Db.Plugin.Configuration;
+namespace SkipMe.Db.Plugin.Configuration;
 
 /// <summary>
 /// Plugin configuration for SkipMe.db.

@@ -10,9 +10,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Skipme.Db.Plugin.Models;
+using SkipMe.Db.Plugin.Models;
 
-namespace Skipme.Db.Plugin.Services;
+namespace SkipMe.Db.Plugin.Services;
 
 /// <summary>
 /// HTTP client for the SkipMe.db API at https://db.skipme.workers.dev.

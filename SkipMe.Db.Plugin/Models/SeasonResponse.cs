@@ -4,7 +4,7 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
-namespace Skipme.Db.Plugin.Models;
+namespace SkipMe.Db.Plugin.Models;
 
 /// <summary>
 /// Represents the response from the SkipMe.db API for a season's segments.

@@ -9,5 +9,5 @@ description: "Provides intro, credits, recap and preview timestamps for TV episo
 category: "MoviesAndShows"
 owner: "Intro Skipper"
 artifacts:
-- "Skipme.Db.Plugin.dll"
+- "SkipMe.Db.Plugin.dll"
 changelog: "- Initial release"

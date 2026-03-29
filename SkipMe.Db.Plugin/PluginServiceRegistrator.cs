@@ -5,10 +5,10 @@ using MediaBrowser.Controller;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
-using Skipme.Db.Plugin.Providers;
-using Skipme.Db.Plugin.Services;
+using SkipMe.Db.Plugin.Providers;
+using SkipMe.Db.Plugin.Services;
 
-namespace Skipme.Db.Plugin;
+namespace SkipMe.Db.Plugin;
 
 /// <summary>
 /// Registers SkipMe.db plugin services with the Jellyfin dependency injection container.

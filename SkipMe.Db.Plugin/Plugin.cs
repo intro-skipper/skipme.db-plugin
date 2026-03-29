@@ -7,9 +7,9 @@ using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
-using Skipme.Db.Plugin.Configuration;
+using SkipMe.Db.Plugin.Configuration;
 
-namespace Skipme.Db.Plugin;
+namespace SkipMe.Db.Plugin;
 
 /// <summary>
 /// The SkipMe.db plugin for Jellyfin.

@@ -1,0 +1,53 @@
+name: "Build Plugin"
+
+on:
+  push:
+    branches:
+      - "*"
+    paths-ignore:
+      - "**/README.md"
+      - "docs/**"
+      - "images/**"
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore SkipMe.Db.Plugin.sln
+
+      - name: Build
+        run: dotnet build SkipMe.Db.Plugin.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test --no-restore --verbosity normal
+
+      - name: Retrieve commit identification
+        run: |
+          GIT_HASH=$(git rev-parse --short HEAD)
+          echo "GIT_HASH=${GIT_HASH}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: SkipMe.Db.Plugin-${{ env.GIT_HASH }}.dll
+          path: SkipMe.Db.Plugin/bin/Release/net9.0/SkipMe.Db.Plugin.dll
+          if-no-files-found: error

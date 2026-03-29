@@ -1,13 +1,13 @@
 ---
-name: "Skipme.DB"
+name: "SkipMe.db"
 guid: "b2a63e62-0ac5-4575-9ad2-2c7534ccb83d"
 version: "1.0.0.0"
 targetAbi: "10.11.5.0"
 framework: "net9.0"
 overview: "Retrieves crowd-sourced segment timestamps from db.skipme.workers.dev"
-description: "Provides intro, credits, recap and preview timestamps for TV episodes by fetching crowd-sourced data from the Skipme.DB API at db.skipme.workers.dev"
+description: "Provides intro, credits, recap and preview timestamps for TV episodes by fetching crowd-sourced data from the SkipMe.db API at db.skipme.workers.dev"
 category: "MoviesAndShows"
 owner: "Intro Skipper"
 artifacts:
-- "Skipme.Db.Plugin.dll"
+- "SkipMe.Db.Plugin.dll"
 changelog: "- Initial release"

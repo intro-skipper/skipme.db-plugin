@@ -3,10 +3,10 @@
 
 using System.Text.Json.Serialization;
 
-namespace Skipme.Db.Plugin.Models;
+namespace SkipMe.Db.Plugin.Models;
 
 /// <summary>
-/// Represents a single segment entry returned by the Skipme.DB API.
+/// Represents a single segment entry returned by the SkipMe.db API.
 /// </summary>
 public class SegmentEntry
 {

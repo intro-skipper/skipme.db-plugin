@@ -7,12 +7,12 @@ using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
-using Skipme.Db.Plugin.Configuration;
+using SkipMe.Db.Plugin.Configuration;
 
-namespace Skipme.Db.Plugin;
+namespace SkipMe.Db.Plugin;
 
 /// <summary>
-/// The Skipme.DB plugin for Jellyfin.
+/// The SkipMe.db plugin for Jellyfin.
 /// Retrieves crowd-sourced intro/credits/recap/preview segment timestamps
 /// from db.skipme.workers.dev and exposes them via the Jellyfin media segments API.
 /// </summary>
@@ -35,7 +35,7 @@ public class Plugin : BasePlugin<PluginConfiguration>
     }
 
     /// <inheritdoc/>
-    public override string Name => "Skipme.DB";
+    public override string Name => "SkipMe.db";
 
     /// <inheritdoc/>
     public override Guid Id => Guid.Parse("b2a63e62-0ac5-4575-9ad2-2c7534ccb83d");

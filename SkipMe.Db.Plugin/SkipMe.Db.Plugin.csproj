@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
-    <RootNamespace>Skipme.Db.Plugin</RootNamespace>
-    <AssemblyName>Skipme.Db.Plugin</AssemblyName>
+    <RootNamespace>SkipMe.Db.Plugin</RootNamespace>
+    <AssemblyName>SkipMe.Db.Plugin</AssemblyName>
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>

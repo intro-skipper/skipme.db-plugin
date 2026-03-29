@@ -15,7 +15,7 @@ using Skipme.Db.Plugin.Models;
 namespace Skipme.Db.Plugin.Services;
 
 /// <summary>
-/// HTTP client for the Skipme.DB API at https://db.skipme.workers.dev.
+/// HTTP client for the SkipMe.db API at https://db.skipme.workers.dev.
 /// Fetches crowd-sourced segment timestamps for TV seasons.
 /// </summary>
 public class SkipMeApiClient
@@ -90,7 +90,7 @@ public class SkipMeApiClient
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
-                    "Skipme.DB API returned {StatusCode} for {Url}",
+                    "SkipMe.db API returned {StatusCode} for {Url}",
                     (int)response.StatusCode,
                     url);
                 return null;
@@ -107,7 +107,7 @@ public class SkipMeApiClient
                 return null;
             }
 
-            _logger.LogWarning(ex, "Failed to fetch segments from Skipme.DB API at {Url}", url);
+            _logger.LogWarning(ex, "Failed to fetch segments from SkipMe.db API at {Url}", url);
             return null;
         }
     }

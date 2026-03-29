@@ -11,7 +11,7 @@ using Skipme.Db.Plugin.Services;
 namespace Skipme.Db.Plugin;
 
 /// <summary>
-/// Registers Skipme.DB plugin services with the Jellyfin dependency injection container.
+/// Registers SkipMe.db plugin services with the Jellyfin dependency injection container.
 /// </summary>
 public class PluginServiceRegistrator : IPluginServiceRegistrator
 {

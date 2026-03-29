@@ -18,12 +18,12 @@ using Skipme.Db.Plugin.Services;
 namespace Skipme.Db.Plugin.Providers;
 
 /// <summary>
-/// Provides media segment timestamps sourced from the Skipme.DB crowd-sourced API.
+/// Provides media segment timestamps sourced from the SkipMe.db crowd-sourced API.
 /// </summary>
 public class SegmentProvider : IMediaSegmentProvider
 {
     /// <summary>
-    /// Mapping from Skipme.DB segment type strings to Jellyfin <see cref="MediaSegmentType"/> values.
+    /// Mapping from SkipMe.db segment type strings to Jellyfin <see cref="MediaSegmentType"/> values.
     /// </summary>
     private static readonly Dictionary<string, MediaSegmentType> SegmentTypeMappings = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -40,7 +40,7 @@ public class SegmentProvider : IMediaSegmentProvider
     /// <summary>
     /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
     /// </summary>
-    /// <param name="apiClient">The Skipme.DB API client.</param>
+    /// <param name="apiClient">The SkipMe.db API client.</param>
     /// <param name="logger">The logger.</param>
     public SegmentProvider(SkipMeApiClient apiClient, ILogger<SegmentProvider> logger)
     {

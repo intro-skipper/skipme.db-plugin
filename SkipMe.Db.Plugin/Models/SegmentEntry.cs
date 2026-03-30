@@ -14,6 +14,10 @@ public class SegmentEntry
     [JsonPropertyName("tvdb_id")]
     public int? TvdbId { get; set; }
 
+    /// <summary>Gets or sets the TVDB series ID.</summary>
+    [JsonPropertyName("tvdb_series_id")]
+    public int? TvdbSeriesId { get; set; }
+
     /// <summary>Gets or sets the TVDB season ID.</summary>
     [JsonPropertyName("tvdb_season_id")]
     public int? TvdbSeasonId { get; set; }

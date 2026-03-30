@@ -141,25 +141,27 @@ public class SyncSegmentsTask : IScheduledTask
                     seriesCache[seriesKey] = seriesResponse;
                 }
 
-                if (seriesResponse is not null)
+                if (seriesResponse is null)
                 {
-                    long? durationMs = episode.RunTimeTicks.HasValue
-                        ? episode.RunTimeTicks.Value / TimeSpan.TicksPerMillisecond
-                        : null;
-                    storedSegments = BuildStoredSegmentsFromSeries(seriesResponse.Segments, seasonNum, epNum, durationMs);
-                }
-                else
-                {
-                    storedSegments = [];
-                }
-
-                if (storedSegments.Count == 0)
-                {
-                    // Series had no matching segments (or series endpoint returned nothing) — fall back to per-episode /v1/media
+                    // Series not present in the API at all — fall back fully to /v1/media
                     var mediaResponse = await FetchMediaDataAsync(episode, cancellationToken).ConfigureAwait(false);
                     storedSegments = mediaResponse is not null
                         ? BuildStoredSegmentsFromMedia(mediaResponse)
                         : [];
+                }
+                else
+                {
+                    // Series is present — use series segments, then fill in any missing segment types from /v1/media
+                    long? durationMs = episode.RunTimeTicks.HasValue
+                        ? episode.RunTimeTicks.Value / TimeSpan.TicksPerMillisecond
+                        : null;
+                    storedSegments = BuildStoredSegmentsFromSeries(seriesResponse.Segments, seasonNum, epNum, durationMs);
+
+                    var mediaResponse = await FetchMediaDataAsync(episode, cancellationToken).ConfigureAwait(false);
+                    if (mediaResponse is not null)
+                    {
+                        FillMissingSegmentsFromMedia(storedSegments, mediaResponse);
+                    }
                 }
             }
             else
@@ -411,6 +413,21 @@ public class SyncSegmentsTask : IScheduledTask
         AddFirstTimestamp(segments, "credits", response.Credits);
         AddFirstTimestamp(segments, "preview", response.Preview);
         return segments;
+    }
+
+    private static void FillMissingSegmentsFromMedia(List<StoredSegment> existingSegments, MediaResponse mediaResponse)
+    {
+        var existingTypes = new HashSet<string>(
+            existingSegments.Select(s => s.Type),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var segment in BuildStoredSegmentsFromMedia(mediaResponse))
+        {
+            if (existingTypes.Add(segment.Type))
+            {
+                existingSegments.Add(segment);
+            }
+        }
     }
 
     private static void AddFirstTimestamp(

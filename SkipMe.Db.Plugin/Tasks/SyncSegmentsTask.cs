@@ -24,6 +24,9 @@ namespace SkipMe.Db.Plugin.Tasks;
 /// </summary>
 public class SyncSegmentsTask : IScheduledTask
 {
+    /// <summary>Maximum duration difference in milliseconds for a season segment to match a media file (±5 s).</summary>
+    private const long SeasonDurationToleranceMs = 5000;
+
     private readonly ILibraryManager _libraryManager;
     private readonly SkipMeApiClient _apiClient;
     private readonly SegmentStore _segmentStore;
@@ -140,7 +143,10 @@ public class SyncSegmentsTask : IScheduledTask
 
                 if (seasonResponse is not null)
                 {
-                    storedSegments = BuildStoredSegmentsFromSeason(seasonResponse.Segments, epNum);
+                    long? durationMs = episode.RunTimeTicks.HasValue
+                        ? episode.RunTimeTicks.Value / TimeSpan.TicksPerMillisecond
+                        : null;
+                    storedSegments = BuildStoredSegmentsFromSeason(seasonResponse.Segments, epNum, durationMs);
                 }
                 else
                 {
@@ -339,6 +345,12 @@ public class SyncSegmentsTask : IScheduledTask
             return null;
         }
 
+        if (durationMs is null)
+        {
+            _logger.LogDebug("Duration unknown for item {ItemId}, skipping media endpoint", item.Id);
+            return null;
+        }
+
         _logger.LogDebug(
             "Fetching media segments for item {ItemId} (tmdb={TmdbId}, tvdb={TvdbId})",
             item.Id,
@@ -346,7 +358,7 @@ public class SyncSegmentsTask : IScheduledTask
             tvdbId);
 
         return await _apiClient
-            .GetByMediaAsync(tmdbId, tvdbId, aniListId, seasonNum, episodeNum, durationMs, cancellationToken)
+            .GetByMediaAsync(tmdbId, tvdbId, aniListId, seasonNum, episodeNum, durationMs.Value, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -354,7 +366,7 @@ public class SyncSegmentsTask : IScheduledTask
     // Segment builders
     // -------------------------------------------------------------------------
 
-    private static List<StoredSegment> BuildStoredSegmentsFromSeason(IList<SegmentEntry> allSegments, int episodeNumber)
+    private static List<StoredSegment> BuildStoredSegmentsFromSeason(IList<SegmentEntry> allSegments, int episodeNumber, long? durationMs)
     {
         var segments = new List<StoredSegment>();
         var seenTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -362,6 +374,13 @@ public class SyncSegmentsTask : IScheduledTask
         foreach (var entry in allSegments)
         {
             if (entry.Episode != episodeNumber)
+            {
+                continue;
+            }
+
+            // Only use segments whose recorded duration is within the tolerance of this media file's
+            // actual duration so that entries submitted for a different cut of the episode are excluded.
+            if (durationMs.HasValue && Math.Abs(entry.DurationMs - durationMs.Value) > SeasonDurationToleranceMs)
             {
                 continue;
             }

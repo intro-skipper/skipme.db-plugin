@@ -83,7 +83,7 @@ public class SkipMeApiClient
     /// <param name="aniListId">The AniList series ID.</param>
     /// <param name="season">Season number (required for TV when using <paramref name="aniListId"/> or <paramref name="tmdbId"/>).</param>
     /// <param name="episode">Episode number (required for TV when using <paramref name="aniListId"/> or <paramref name="tmdbId"/>).</param>
-    /// <param name="durationMs">Episode duration in milliseconds; narrows matching to ±5 000 ms.</param>
+    /// <param name="durationMs">Episode duration in milliseconds (required); used for API matching with a ±5 000 ms tolerance.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The media response, or <c>null</c> if not found or on error.</returns>
     public Task<MediaResponse?> GetByMediaAsync(
@@ -92,7 +92,7 @@ public class SkipMeApiClient
         int? aniListId,
         int? season,
         int? episode,
-        long? durationMs,
+        long durationMs,
         CancellationToken cancellationToken)
     {
         var sb = new StringBuilder($"{BaseUrl}/v1/media?");
@@ -128,10 +128,7 @@ public class SkipMeApiClient
             sep = "&";
         }
 
-        if (durationMs.HasValue)
-        {
-            sb.Append(sep).Append("duration_ms=").Append(durationMs.Value);
-        }
+        sb.Append(sep).Append("duration_ms=").Append(durationMs);
 
         return FetchMediaAsync(sb.ToString(), cancellationToken);
     }

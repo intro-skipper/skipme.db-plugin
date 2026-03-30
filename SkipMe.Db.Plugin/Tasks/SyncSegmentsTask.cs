@@ -49,13 +49,13 @@ public class SyncSegmentsTask : IScheduledTask
     }
 
     /// <inheritdoc/>
-    public string Name => "Sync SkipMe.db Segments";
+    public string Name => "Sync SkipMe.db Segment Database";
 
     /// <inheritdoc/>
     public string Key => "SkipMeDbSync";
 
     /// <inheritdoc/>
-    public string Description => "Fetches crowd-sourced segment timestamps from the SkipMe.db API for all movies and TV episodes on the server and stores them locally.";
+    public string Description => "Fetches relevant crowd-sourced segment timestamps from the SkipMe.db API and stores them locally.";
 
     /// <inheritdoc/>
     public string Category => "SkipMe.db";

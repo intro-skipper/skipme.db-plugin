@@ -123,50 +123,44 @@ public class SyncSegmentsTask : IScheduledTask
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (episode.IndexNumber is not { } epNum || episode.ParentIndexNumber is not { } seasonNum)
+            if (episode.IndexNumber is { } epNum && episode.ParentIndexNumber is { } seasonNum)
             {
-                processed++;
-                ReportProgress(progress, processed, totalItems);
-                continue;
-            }
+                List<StoredSegment>? storedSegments = null;
 
-            List<StoredSegment> storedSegments;
-
-            var seriesKey = GetSeriesCacheKey(episode);
-            if (seriesKey is not null)
-            {
-                if (!seriesCache.TryGetValue(seriesKey, out var seriesResponse))
+                var seriesKey = GetSeriesCacheKey(episode);
+                if (seriesKey is not null)
                 {
-                    seriesResponse = await FetchSeriesDataAsync(episode, cancellationToken).ConfigureAwait(false);
-                    seriesCache[seriesKey] = seriesResponse;
+                    if (!seriesCache.TryGetValue(seriesKey, out var seriesResponse))
+                    {
+                        seriesResponse = await FetchSeriesDataAsync(episode, cancellationToken).ConfigureAwait(false);
+                        seriesCache[seriesKey] = seriesResponse;
+                    }
+
+                    if (seriesResponse is not null)
+                    {
+                        // Series is present in the API — use series segments only
+                        long? durationMs = episode.RunTimeTicks.HasValue
+                            ? episode.RunTimeTicks.Value / TimeSpan.TicksPerMillisecond
+                            : null;
+                        storedSegments = BuildStoredSegmentsFromSeries(seriesResponse.Segments, seasonNum, epNum, durationMs);
+                    }
+
+                    // seriesResponse is null → series IDs present on Jellyfin but series not found in the API — skip
+                }
+                else
+                {
+                    // No series-level metadata key available on the Jellyfin server — use /v1/media directly
+                    var mediaResponse = await FetchMediaDataAsync(episode, cancellationToken).ConfigureAwait(false);
+                    if (mediaResponse is not null)
+                    {
+                        storedSegments = BuildStoredSegmentsFromMedia(mediaResponse);
+                    }
                 }
 
-                if (seriesResponse is null)
+                if (storedSegments is { Count: > 0 })
                 {
-                    // Series IDs are present on the Jellyfin server but the series was not found in the SkipMe.db API — skip this episode
-                    processed++;
-                    ReportProgress(progress, processed, totalItems);
-                    continue;
+                    newSegments[episode.Id] = storedSegments;
                 }
-
-                // Series is present in the API — use series segments only
-                long? durationMs = episode.RunTimeTicks.HasValue
-                    ? episode.RunTimeTicks.Value / TimeSpan.TicksPerMillisecond
-                    : null;
-                storedSegments = BuildStoredSegmentsFromSeries(seriesResponse.Segments, seasonNum, epNum, durationMs);
-            }
-            else
-            {
-                // No series-level metadata key available on the Jellyfin server — use /v1/media directly
-                var mediaResponse = await FetchMediaDataAsync(episode, cancellationToken).ConfigureAwait(false);
-                storedSegments = mediaResponse is not null
-                    ? BuildStoredSegmentsFromMedia(mediaResponse)
-                    : [];
-            }
-
-            if (storedSegments.Count > 0)
-            {
-                newSegments[episode.Id] = storedSegments;
             }
 
             processed++;

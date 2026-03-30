@@ -115,7 +115,7 @@ public class SyncSegmentsTask : IScheduledTask
             ReportProgress(progress, processed, totalItems);
         }
 
-        // --- TV episodes: /v1/series (cached per series), fallback to /v1/media ---
+        // --- TV episodes: /v1/series (cached per series), fallback to /v1/media only when no series ID is available ---
         // Cache keyed by series identity string to avoid redundant API round-trips.
         var seriesCache = new Dictionary<string, SeriesResponse?>(StringComparer.Ordinal);
 
@@ -143,30 +143,21 @@ public class SyncSegmentsTask : IScheduledTask
 
                 if (seriesResponse is null)
                 {
-                    // Series not present in the API at all — fall back fully to /v1/media
-                    var mediaResponse = await FetchMediaDataAsync(episode, cancellationToken).ConfigureAwait(false);
-                    storedSegments = mediaResponse is not null
-                        ? BuildStoredSegmentsFromMedia(mediaResponse)
-                        : [];
+                    // Series IDs are present on the Jellyfin server but the series was not found in the SkipMe.db API — skip this episode
+                    processed++;
+                    ReportProgress(progress, processed, totalItems);
+                    continue;
                 }
-                else
-                {
-                    // Series is present — use series segments, then fill in any missing segment types from /v1/media
-                    long? durationMs = episode.RunTimeTicks.HasValue
-                        ? episode.RunTimeTicks.Value / TimeSpan.TicksPerMillisecond
-                        : null;
-                    storedSegments = BuildStoredSegmentsFromSeries(seriesResponse.Segments, seasonNum, epNum, durationMs);
 
-                    var mediaResponse = await FetchMediaDataAsync(episode, cancellationToken).ConfigureAwait(false);
-                    if (mediaResponse is not null)
-                    {
-                        FillMissingSegmentsFromMedia(storedSegments, mediaResponse);
-                    }
-                }
+                // Series is present in the API — use series segments only
+                long? durationMs = episode.RunTimeTicks.HasValue
+                    ? episode.RunTimeTicks.Value / TimeSpan.TicksPerMillisecond
+                    : null;
+                storedSegments = BuildStoredSegmentsFromSeries(seriesResponse.Segments, seasonNum, epNum, durationMs);
             }
             else
             {
-                // No series-level metadata key available — use /v1/media directly
+                // No series-level metadata key available on the Jellyfin server — use /v1/media directly
                 var mediaResponse = await FetchMediaDataAsync(episode, cancellationToken).ConfigureAwait(false);
                 storedSegments = mediaResponse is not null
                     ? BuildStoredSegmentsFromMedia(mediaResponse)
@@ -413,21 +404,6 @@ public class SyncSegmentsTask : IScheduledTask
         AddFirstTimestamp(segments, "credits", response.Credits);
         AddFirstTimestamp(segments, "preview", response.Preview);
         return segments;
-    }
-
-    private static void FillMissingSegmentsFromMedia(List<StoredSegment> existingSegments, MediaResponse mediaResponse)
-    {
-        var existingTypes = new HashSet<string>(
-            existingSegments.Select(s => s.Type),
-            StringComparer.OrdinalIgnoreCase);
-
-        foreach (var segment in BuildStoredSegmentsFromMedia(mediaResponse))
-        {
-            if (existingTypes.Add(segment.Type))
-            {
-                existingSegments.Add(segment);
-            }
-        }
     }
 
     private static void AddFirstTimestamp(

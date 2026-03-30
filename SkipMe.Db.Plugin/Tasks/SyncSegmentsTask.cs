@@ -292,18 +292,19 @@ public class SyncSegmentsTask : IScheduledTask
             seasonNum = episode.ParentIndexNumber;
             episodeNum = episode.IndexNumber;
 
+            // tvdb_id in the /v1/media API is the episode-level TVDB ID, not the series-level one.
+            if (episode.ProviderIds.TryGetValue("Tvdb", out var vStr)
+                && int.TryParse(vStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var vId))
+            {
+                tvdbId = vId;
+            }
+
             if (series is not null)
             {
                 if (series.ProviderIds.TryGetValue("Tmdb", out var tStr)
                     && int.TryParse(tStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tId))
                 {
                     tmdbId = tId;
-                }
-
-                if (series.ProviderIds.TryGetValue("Tvdb", out var vStr)
-                    && int.TryParse(vStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var vId))
-                {
-                    tvdbId = vId;
                 }
 
                 if (series.ProviderIds.TryGetValue("AniList", out var aStr)

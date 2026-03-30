@@ -25,5 +25,5 @@ public class SeriesResponse
 
     /// <summary>Gets the list of segment entries for all episodes across all seasons in this series.</summary>
     [JsonPropertyName("segments")]
-    public IList<SegmentEntry> Segments { get; } = [];
+    public IList<SegmentEntry> Segments { get; init; } = [];
 }

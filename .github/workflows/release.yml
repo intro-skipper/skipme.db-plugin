@@ -1,0 +1,61 @@
+name: "Release Plugin"
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "Mark upload as prerelease"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-plugin
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore SkipMe.Db.Plugin.sln
+
+      - name: Build
+        run: dotnet build SkipMe.Db.Plugin.sln --configuration Release --no-restore
+
+      - name: Package release artifact
+        run: zip -j "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" SkipMe.Db.Plugin/bin/Release/net9.0/SkipMe.Db.Plugin.dll
+
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          PRERELEASE="false"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.prerelease }}" = "true" ]; then
+            PRERELEASE="true"
+          fi
+
+          if [ "$PRERELEASE" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          else
+            PRERELEASE_FLAG=""
+          fi
+
+          if gh release view "${{ env.RELEASE_TAG }}" >/dev/null 2>&1; then
+            gh release upload "${{ env.RELEASE_TAG }}" "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" --clobber
+          else
+            gh release create "${{ env.RELEASE_TAG }}" "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" --title "${{ env.RELEASE_TAG }}" --generate-notes --target "${{ github.event.repository.default_branch }}" ${PRERELEASE_FLAG}
+          fi

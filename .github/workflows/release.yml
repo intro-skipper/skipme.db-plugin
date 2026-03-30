@@ -52,7 +52,7 @@ jobs:
         run: dotnet build SkipMe.Db.Plugin.sln --configuration Release --no-restore
 
       - name: Package release artifact
-        run: zip -j "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" SkipMe.Db.Plugin/bin/Release/net9.0/SkipMe.Db.Plugin.dll
+        run: zip -j "SkipMe.db-plugin-v${{ env.RELEASE_TAG }}.zip" SkipMe.Db.Plugin/bin/Release/net9.0/SkipMe.Db.Plugin.dll
 
       - name: Publish release
         env:
@@ -70,10 +70,10 @@ jobs:
             PRERELEASE_FLAG=""
           fi
 
-          if gh release view "${{ env.RELEASE_TAG }}" >/dev/null 2>&1; then
-            gh release upload "${{ env.RELEASE_TAG }}" "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" --clobber
+          if gh release view "v${{ env.RELEASE_TAG }}" >/dev/null 2>&1; then
+            gh release upload v"${{ env.RELEASE_TAG }}" "SkipMe.db-plugin-v${{ env.RELEASE_TAG }}.zip" --clobber
           else
-            gh release create "${{ env.RELEASE_TAG }}" "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" --title "${{ env.RELEASE_TAG }}" --generate-notes --target "${{ github.event.repository.default_branch }}" ${PRERELEASE_FLAG}
+            gh release create "v${{ env.RELEASE_TAG }}" "SkipMe.db-plugin-v${{ env.RELEASE_TAG }}.zip" --title "v${{ env.RELEASE_TAG }}" --generate-notes --target "${{ github.event.repository.default_branch }}" ${PRERELEASE_FLAG}
           fi
 
       - name: Commit updated build.yaml

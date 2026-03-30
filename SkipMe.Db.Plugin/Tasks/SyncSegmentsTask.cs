@@ -390,7 +390,7 @@ public class SyncSegmentsTask : IScheduledTask
                 continue;
             }
 
-            if (entry.StartMs <= 0 || entry.EndMs <= 0 || entry.StartMs > entry.EndMs)
+            if (entry.StartMs < 0 || entry.EndMs <= 0 || entry.StartMs >= entry.EndMs)
             {
                 continue;
             }
@@ -432,7 +432,7 @@ public class SyncSegmentsTask : IScheduledTask
             return;
         }
 
-        if (first.StartMs <= 0 || endMs <= 0 || first.StartMs > endMs)
+        if (first.StartMs < 0 || endMs <= 0 || first.StartMs >= endMs)
         {
             return;
         }

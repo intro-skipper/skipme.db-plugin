@@ -150,7 +150,12 @@ public class SyncSegmentsTask : IScheduledTask
                 }
                 else
                 {
-                    // Series endpoint returned nothing — fall back to per-episode /v1/media
+                    storedSegments = [];
+                }
+
+                if (storedSegments.Count == 0)
+                {
+                    // Series had no matching segments (or series endpoint returned nothing) — fall back to per-episode /v1/media
                     var mediaResponse = await FetchMediaDataAsync(episode, cancellationToken).ConfigureAwait(false);
                     storedSegments = mediaResponse is not null
                         ? BuildStoredSegmentsFromMedia(mediaResponse)

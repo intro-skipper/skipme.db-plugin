@@ -1,7 +1,7 @@
 ---
 name: "SkipMe.db"
 guid: "b2a63e62-0ac5-4575-9ad2-2c7534ccb83d"
-version: "0.1.1.0"
+version: "0.1.2.0"
 targetAbi: "10.11.5.0"
 framework: "net9.0"
 overview: "Retrieves crowd-sourced segment timestamps from the SkipMe.db API"

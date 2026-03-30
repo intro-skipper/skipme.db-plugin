@@ -37,17 +37,17 @@ public class MediaResponse
 
     /// <summary>Gets the intro segment timestamps.</summary>
     [JsonPropertyName("intro")]
-    public IList<MediaTimestamp> Intro { get; } = [];
+    public IList<MediaTimestamp> Intro { get; init; } = [];
 
     /// <summary>Gets the recap segment timestamps.</summary>
     [JsonPropertyName("recap")]
-    public IList<MediaTimestamp> Recap { get; } = [];
+    public IList<MediaTimestamp> Recap { get; init; } = [];
 
     /// <summary>Gets the credits segment timestamps.</summary>
     [JsonPropertyName("credits")]
-    public IList<MediaTimestamp> Credits { get; } = [];
+    public IList<MediaTimestamp> Credits { get; init; } = [];
 
     /// <summary>Gets the preview segment timestamps.</summary>
     [JsonPropertyName("preview")]
-    public IList<MediaTimestamp> Preview { get; } = [];
+    public IList<MediaTimestamp> Preview { get; init; } = [];
 }

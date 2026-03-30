@@ -24,8 +24,8 @@ namespace SkipMe.Db.Plugin.Tasks;
 /// </summary>
 public class SyncSegmentsTask : IScheduledTask
 {
-    /// <summary>Maximum duration difference in milliseconds for a season segment to match a media file (±5 s).</summary>
-    private const long SeasonDurationToleranceMs = 5000;
+    /// <summary>Maximum duration difference in milliseconds for a series segment to match a media file (±5 s).</summary>
+    private const long SeriesDurationToleranceMs = 5000;
 
     private readonly ILibraryManager _libraryManager;
     private readonly SkipMeApiClient _apiClient;
@@ -115,15 +115,15 @@ public class SyncSegmentsTask : IScheduledTask
             ReportProgress(progress, processed, totalItems);
         }
 
-        // --- TV episodes: /v1/season (cached per metadata key), fallback to /v1/media ---
-        // Cache keyed by season identity string to avoid redundant API round-trips.
-        var seasonCache = new Dictionary<string, SeasonResponse?>(StringComparer.Ordinal);
+        // --- TV episodes: /v1/series (cached per series), fallback to /v1/media ---
+        // Cache keyed by series identity string to avoid redundant API round-trips.
+        var seriesCache = new Dictionary<string, SeriesResponse?>(StringComparer.Ordinal);
 
         foreach (var episode in allEpisodes)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (episode.IndexNumber is not { } epNum)
+            if (episode.IndexNumber is not { } epNum || episode.ParentIndexNumber is not { } seasonNum)
             {
                 processed++;
                 ReportProgress(progress, processed, totalItems);
@@ -132,25 +132,25 @@ public class SyncSegmentsTask : IScheduledTask
 
             List<StoredSegment> storedSegments;
 
-            var seasonKey = GetSeasonCacheKey(episode);
-            if (seasonKey is not null)
+            var seriesKey = GetSeriesCacheKey(episode);
+            if (seriesKey is not null)
             {
-                if (!seasonCache.TryGetValue(seasonKey, out var seasonResponse))
+                if (!seriesCache.TryGetValue(seriesKey, out var seriesResponse))
                 {
-                    seasonResponse = await FetchSeasonDataAsync(episode, cancellationToken).ConfigureAwait(false);
-                    seasonCache[seasonKey] = seasonResponse;
+                    seriesResponse = await FetchSeriesDataAsync(episode, cancellationToken).ConfigureAwait(false);
+                    seriesCache[seriesKey] = seriesResponse;
                 }
 
-                if (seasonResponse is not null)
+                if (seriesResponse is not null)
                 {
                     long? durationMs = episode.RunTimeTicks.HasValue
                         ? episode.RunTimeTicks.Value / TimeSpan.TicksPerMillisecond
                         : null;
-                    storedSegments = BuildStoredSegmentsFromSeason(seasonResponse.Segments, epNum, durationMs);
+                    storedSegments = BuildStoredSegmentsFromSeries(seriesResponse.Segments, seasonNum, epNum, durationMs);
                 }
                 else
                 {
-                    // Season endpoint returned nothing — fall back to per-episode /v1/media
+                    // Series endpoint returned nothing — fall back to per-episode /v1/media
                     var mediaResponse = await FetchMediaDataAsync(episode, cancellationToken).ConfigureAwait(false);
                     storedSegments = mediaResponse is not null
                         ? BuildStoredSegmentsFromMedia(mediaResponse)
@@ -159,7 +159,7 @@ public class SyncSegmentsTask : IScheduledTask
             }
             else
             {
-                // No season-level metadata key available — use /v1/media directly
+                // No series-level metadata key available — use /v1/media directly
                 var mediaResponse = await FetchMediaDataAsync(episode, cancellationToken).ConfigureAwait(false);
                 storedSegments = mediaResponse is not null
                     ? BuildStoredSegmentsFromMedia(mediaResponse)
@@ -183,90 +183,81 @@ public class SyncSegmentsTask : IScheduledTask
     }
 
     // -------------------------------------------------------------------------
-    // Season fetch helpers
+    // Series fetch helpers
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Returns a stable string key that identifies the season for API caching purposes,
+    /// Returns a stable string key that identifies the series for API caching purposes,
     /// or <c>null</c> if no supported provider ID is available.
     /// </summary>
-    private static string? GetSeasonCacheKey(Episode episode)
+    private static string? GetSeriesCacheKey(Episode episode)
     {
-        var season = episode.Season;
-        if (season is not null
-            && season.ProviderIds.TryGetValue("Tvdb", out var tvdbSeasonId)
-            && !string.IsNullOrEmpty(tvdbSeasonId))
-        {
-            return string.Create(CultureInfo.InvariantCulture, $"tvdb_season:{tvdbSeasonId}");
-        }
-
-        var seasonNum = episode.ParentIndexNumber;
         var series = episode.Series;
-        if (series is null || seasonNum is null)
+        if (series is null)
         {
             return null;
         }
 
+        if (series.ProviderIds.TryGetValue("Tvdb", out var tvdbSeriesId) && !string.IsNullOrEmpty(tvdbSeriesId))
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"tvdb_series:{tvdbSeriesId}");
+        }
+
         if (series.ProviderIds.TryGetValue("Tmdb", out var tmdbId) && !string.IsNullOrEmpty(tmdbId))
         {
-            return string.Create(CultureInfo.InvariantCulture, $"tmdb:{tmdbId}:season:{seasonNum.Value}");
+            return string.Create(CultureInfo.InvariantCulture, $"tmdb:{tmdbId}");
         }
 
         if (series.ProviderIds.TryGetValue("AniList", out var aniListId) && !string.IsNullOrEmpty(aniListId))
         {
-            return string.Create(CultureInfo.InvariantCulture, $"anilist:{aniListId}:season:{seasonNum.Value}");
+            return string.Create(CultureInfo.InvariantCulture, $"anilist:{aniListId}");
         }
 
         return null;
     }
 
-    private async Task<SeasonResponse?> FetchSeasonDataAsync(Episode episode, CancellationToken cancellationToken)
+    private async Task<SeriesResponse?> FetchSeriesDataAsync(Episode episode, CancellationToken cancellationToken)
     {
-        // Mode A: TVDB season ID (most specific)
-        var season = episode.Season;
-        if (season is not null
-            && season.ProviderIds.TryGetValue("Tvdb", out var tvdbSeasonIdStr)
-            && int.TryParse(tvdbSeasonIdStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tvdbSeasonId))
-        {
-            _logger.LogDebug("Fetching season via TVDB season ID {TvdbSeasonId}", tvdbSeasonId);
-            var result = await _apiClient.GetByTvdbSeasonIdAsync(tvdbSeasonId, cancellationToken).ConfigureAwait(false);
-            if (result is not null)
-            {
-                return result;
-            }
-        }
-
-        var seasonNumber = episode.ParentIndexNumber;
-        if (seasonNumber is null)
+        var series = episode.Series;
+        if (series is null)
         {
             return null;
         }
 
-        var series = episode.Series;
+        int? tvdbSeriesId = null;
+        int? tmdbId = null;
+        int? aniListId = null;
 
-        // Mode B: TMDB series ID + season number
-        if (series is not null
-            && series.ProviderIds.TryGetValue("Tmdb", out var tmdbIdStr)
-            && int.TryParse(tmdbIdStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tmdbId))
+        if (series.ProviderIds.TryGetValue("Tvdb", out var tvdbStr)
+            && int.TryParse(tvdbStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tvdbId))
         {
-            _logger.LogDebug("Fetching season via TMDB ID {TmdbId}, season {Season}", tmdbId, seasonNumber.Value);
-            var result = await _apiClient.GetByTmdbIdAsync(tmdbId, seasonNumber.Value, cancellationToken).ConfigureAwait(false);
-            if (result is not null)
-            {
-                return result;
-            }
+            tvdbSeriesId = tvdbId;
         }
 
-        // Mode C: AniList series ID + season number
-        if (series is not null
-            && series.ProviderIds.TryGetValue("AniList", out var aniListIdStr)
-            && int.TryParse(aniListIdStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var aniListId))
+        if (series.ProviderIds.TryGetValue("Tmdb", out var tmdbStr)
+            && int.TryParse(tmdbStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tId))
         {
-            _logger.LogDebug("Fetching season via AniList ID {AniListId}, season {Season}", aniListId, seasonNumber.Value);
-            return await _apiClient.GetByAniListIdAsync(aniListId, seasonNumber.Value, cancellationToken).ConfigureAwait(false);
+            tmdbId = tId;
         }
 
-        return null;
+        if (series.ProviderIds.TryGetValue("AniList", out var aniListStr)
+            && int.TryParse(aniListStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var aId))
+        {
+            aniListId = aId;
+        }
+
+        if (tvdbSeriesId is null && tmdbId is null && aniListId is null)
+        {
+            return null;
+        }
+
+        _logger.LogDebug(
+            "Fetching series via tvdb_series_id={TvdbSeriesId}, tmdb_id={TmdbId}, anilist_id={AniListId}",
+            tvdbSeriesId,
+            tmdbId,
+            aniListId);
+
+        return await _apiClient.GetBySeriesAsync(tvdbSeriesId, tmdbId, aniListId, cancellationToken).ConfigureAwait(false);
     }
 
     // -------------------------------------------------------------------------
@@ -366,21 +357,21 @@ public class SyncSegmentsTask : IScheduledTask
     // Segment builders
     // -------------------------------------------------------------------------
 
-    private static List<StoredSegment> BuildStoredSegmentsFromSeason(IList<SegmentEntry> allSegments, int episodeNumber, long? durationMs)
+    private static List<StoredSegment> BuildStoredSegmentsFromSeries(IList<SegmentEntry> allSegments, int seasonNumber, int episodeNumber, long? durationMs)
     {
         var segments = new List<StoredSegment>();
         var seenTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var entry in allSegments)
         {
-            if (entry.Episode != episodeNumber)
+            if (entry.Season != seasonNumber || entry.Episode != episodeNumber)
             {
                 continue;
             }
 
             // Only use segments whose recorded duration is within the tolerance of this media file's
             // actual duration so that entries submitted for a different cut of the episode are excluded.
-            if (durationMs.HasValue && Math.Abs(entry.DurationMs - durationMs.Value) > SeasonDurationToleranceMs)
+            if (durationMs.HasValue && Math.Abs(entry.DurationMs - durationMs.Value) > SeriesDurationToleranceMs)
             {
                 continue;
             }
@@ -390,7 +381,7 @@ public class SyncSegmentsTask : IScheduledTask
                 continue;
             }
 
-            if (entry.StartMs <= 0 || entry.EndMs <= 0 || entry.StartMs > entry.EndMs)
+            if (entry.StartMs < 0 || entry.EndMs <= 0 || entry.StartMs >= entry.EndMs)
             {
                 continue;
             }
@@ -432,7 +423,7 @@ public class SyncSegmentsTask : IScheduledTask
             return;
         }
 
-        if (first.StartMs <= 0 || endMs <= 0 || first.StartMs > endMs)
+        if (first.StartMs < 0 || endMs <= 0 || first.StartMs >= endMs)
         {
             return;
         }

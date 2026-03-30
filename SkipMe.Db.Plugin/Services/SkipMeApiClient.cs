@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
-using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -16,7 +15,7 @@ namespace SkipMe.Db.Plugin.Services;
 
 /// <summary>
 /// HTTP client for the SkipMe.db API at https://db.skipme.workers.dev.
-/// Fetches crowd-sourced segment timestamps for TV seasons.
+/// Fetches crowd-sourced segment timestamps for TV series and movies.
 /// </summary>
 public class SkipMeApiClient
 {
@@ -37,41 +36,37 @@ public class SkipMeApiClient
     }
 
     /// <summary>
-    /// Fetches all segment timestamps for a season using the TVDB season ID.
+    /// Fetches all segment timestamps for a series.
+    /// At least one of <paramref name="tvdbSeriesId"/>, <paramref name="tmdbId"/>, or <paramref name="aniListId"/> must be provided.
     /// </summary>
-    /// <param name="tvdbSeasonId">The TVDB season ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The season response, or <c>null</c> if not found or on error.</returns>
-    public Task<SeasonResponse?> GetByTvdbSeasonIdAsync(int tvdbSeasonId, CancellationToken cancellationToken)
-    {
-        var url = $"{BaseUrl}/v1/season?tvdb_season_id={tvdbSeasonId}";
-        return FetchSeasonAsync(url, cancellationToken);
-    }
-
-    /// <summary>
-    /// Fetches all segment timestamps for a season using the TMDB series ID and season number.
-    /// </summary>
+    /// <param name="tvdbSeriesId">The TVDB series ID.</param>
     /// <param name="tmdbId">The TMDB series ID.</param>
-    /// <param name="season">The season number.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The season response, or <c>null</c> if not found or on error.</returns>
-    public Task<SeasonResponse?> GetByTmdbIdAsync(int tmdbId, int season, CancellationToken cancellationToken)
-    {
-        var url = $"{BaseUrl}/v1/season?tmdb_id={tmdbId}&season={season}";
-        return FetchSeasonAsync(url, cancellationToken);
-    }
-
-    /// <summary>
-    /// Fetches all segment timestamps for a season using the AniList series ID and season number.
-    /// </summary>
     /// <param name="aniListId">The AniList series ID.</param>
-    /// <param name="season">The season number.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The season response, or <c>null</c> if not found or on error.</returns>
-    public Task<SeasonResponse?> GetByAniListIdAsync(int aniListId, int season, CancellationToken cancellationToken)
+    /// <returns>The series response, or <c>null</c> if not found or on error.</returns>
+    public Task<SeriesResponse?> GetBySeriesAsync(int? tvdbSeriesId, int? tmdbId, int? aniListId, CancellationToken cancellationToken)
     {
-        var url = $"{BaseUrl}/v1/season?anilist_id={aniListId}&season={season}";
-        return FetchSeasonAsync(url, cancellationToken);
+        var sb = new StringBuilder($"{BaseUrl}/v1/series?");
+        var sep = string.Empty;
+
+        if (tvdbSeriesId.HasValue)
+        {
+            sb.Append(sep).Append("tvdb_series_id=").Append(tvdbSeriesId.Value);
+            sep = "&";
+        }
+
+        if (tmdbId.HasValue)
+        {
+            sb.Append(sep).Append("tmdb_id=").Append(tmdbId.Value);
+            sep = "&";
+        }
+
+        if (aniListId.HasValue)
+        {
+            sb.Append(sep).Append("anilist_id=").Append(aniListId.Value);
+        }
+
+        return FetchSeriesAsync(sb.ToString(), cancellationToken);
     }
 
     /// <summary>
@@ -171,7 +166,7 @@ public class SkipMeApiClient
         }
     }
 
-    private async Task<SeasonResponse?> FetchSeasonAsync(string url, CancellationToken cancellationToken)
+    private async Task<SeriesResponse?> FetchSeriesAsync(string url, CancellationToken cancellationToken)
     {
         try
         {
@@ -194,7 +189,7 @@ public class SkipMeApiClient
             }
 
             return await response.Content
-                .ReadFromJsonAsync<SeasonResponse>(cancellationToken)
+                .ReadFromJsonAsync<SeriesResponse>(cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)

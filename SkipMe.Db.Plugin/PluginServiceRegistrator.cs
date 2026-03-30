@@ -4,9 +4,11 @@
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using SkipMe.Db.Plugin.Providers;
 using SkipMe.Db.Plugin.Services;
+using SkipMe.Db.Plugin.Tasks;
 
 namespace SkipMe.Db.Plugin;
 
@@ -20,6 +22,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddHttpClient(nameof(SkipMeApiClient));
         serviceCollection.AddSingleton<SkipMeApiClient>();
+        serviceCollection.AddSingleton<SegmentStore>();
         serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
+        serviceCollection.AddSingleton<IScheduledTask, SyncSegmentsTask>();
     }
 }

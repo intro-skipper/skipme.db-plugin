@@ -28,7 +28,17 @@ jobs:
         shell: bash
         run: |
           VERSION=$(grep '^version:' build.yaml | grep -oP '[\d.]+')
+          echo "CURRENT_VERSION=${VERSION}" >> $GITHUB_ENV
           echo "RELEASE_TAG=v${VERSION}" >> $GITHUB_ENV
+
+      - name: Increment patch version
+        if: ${{ inputs.prerelease != true }}
+        shell: bash
+        run: |
+          IFS='.' read -ra VER <<< "${{ env.CURRENT_VERSION }}"
+          NEW_PATCH=$((${VER[2]} + 1))
+          NEW_VERSION="${VER[0]}.${VER[1]}.$NEW_PATCH.0"
+          echo "RELEASE_TAG=${NEW_VERSION}" >> $GITHUB_ENV
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -66,17 +76,13 @@ jobs:
             gh release create "${{ env.RELEASE_TAG }}" "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" --title "${{ env.RELEASE_TAG }}" --generate-notes --target "${{ github.event.repository.default_branch }}" ${PRERELEASE_FLAG}
           fi
 
-      - name: Increment patch version and commit build.yaml
+      - name: Commit updated build.yaml
         if: ${{ inputs.prerelease != true }}
         shell: bash
         run: |
-          CURRENT_VERSION=$(grep '^version:' build.yaml | grep -oP '[\d.]+')
-          IFS='.' read -ra VER <<< "$CURRENT_VERSION"
-          NEW_PATCH=$((${VER[2]} + 1))
-          NEW_VERSION="${VER[0]}.${VER[1]}.$NEW_PATCH.0"
-          sed -i "s/version: \"$CURRENT_VERSION\"/version: \"$NEW_VERSION\"/" build.yaml
+          sed -i "s/version: \"${{ env.CURRENT_VERSION }}\"/version: \"${{ env.RELEASE_TAG }}\"/" build.yaml
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add build.yaml
-          git commit -m "Increment patch version to $NEW_VERSION"
+          git commit -m "Increment patch version to ${{ env.RELEASE_TAG }}"
           git push

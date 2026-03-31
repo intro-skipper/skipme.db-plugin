@@ -24,21 +24,70 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Read version from build.yaml
-        shell: bash
-        run: |
-          VERSION=$(grep '^version:' build.yaml | grep -oP '[\d.]+')
-          echo "CURRENT_VERSION=${VERSION}" >> $GITHUB_ENV
-          echo "RELEASE_TAG=v${VERSION}" >> $GITHUB_ENV
-
       - name: Increment patch version
         if: ${{ inputs.prerelease != true }}
         shell: bash
         run: |
-          IFS='.' read -ra VER <<< "${{ env.CURRENT_VERSION }}"
-          NEW_PATCH=$((${VER[2]} + 1))
-          NEW_VERSION="${VER[0]}.${VER[1]}.$NEW_PATCH.0"
-          echo "RELEASE_TAG=${NEW_VERSION}" >> $GITHUB_ENV
+          python - <<'PY'
+          import os
+          import re
+
+          path = "Directory.Build.props"
+          with open(path, "r", encoding="utf-8") as file:
+              content = file.read()
+
+          match = re.search(r"<Version>(\d+)\.(\d+)\.(\d+)\.(\d+)</Version>", content)
+          if not match:
+              raise SystemExit("Could not parse <Version> in Directory.Build.props")
+
+          major, minor, patch, revision = match.groups()
+          new_version = f"{major}.{minor}.{int(patch) + 1}.{revision}"
+
+          for tag in ("Version", "AssemblyVersion", "FileVersion"):
+              content, count = re.subn(
+                  rf"<{tag}>\d+\.\d+\.\d+\.\d+</{tag}>",
+                  f"<{tag}>{new_version}</{tag}>",
+                  content,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit(f"Could not update <{tag}> in Directory.Build.props")
+
+          with open(path, "w", encoding="utf-8", newline="\n") as file:
+              file.write(content)
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"NEW_VERSION={new_version}\n")
+              env.write(f"RELEASE_TAG=v{new_version}\n")
+
+          print(f"Increment patch version to {new_version}")
+          PY
+
+      - name: Retrieve patch version
+        if: ${{ inputs.prerelease == true }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import re
+
+          path = "Directory.Build.props"
+          with open(path, "r", encoding="utf-8") as file:
+              content = file.read()
+
+          match = re.search(r"<Version>(\d+)\.(\d+)\.(\d+)\.(\d+)</Version>", content)
+          if not match:
+              raise SystemExit("Could not parse <Version> in Directory.Build.props")
+
+          major, minor, patch, revision = match.groups()
+          new_version = f"{major}.{minor}.{patch}.{revision}"
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"NEW_VERSION={new_version}\n")
+              env.write(f"RELEASE_TAG=v{new_version}\n")
+
+          print(f"Retrieve patch version of {new_version}")
+          PY
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -52,7 +101,7 @@ jobs:
         run: dotnet build SkipMe.Db.Plugin.sln --configuration Release --no-restore
 
       - name: Package release artifact
-        run: zip -j "SkipMe.db-plugin-v${{ env.RELEASE_TAG }}.zip" SkipMe.Db.Plugin/bin/Release/net9.0/SkipMe.Db.Plugin.dll
+        run: zip -j "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" SkipMe.Db.Plugin/bin/Release/net9.0/SkipMe.Db.Plugin.dll
 
       - name: Publish release
         env:
@@ -70,19 +119,18 @@ jobs:
             PRERELEASE_FLAG=""
           fi
 
-          if gh release view "v${{ env.RELEASE_TAG }}" >/dev/null 2>&1; then
-            gh release upload v"${{ env.RELEASE_TAG }}" "SkipMe.db-plugin-v${{ env.RELEASE_TAG }}.zip" --clobber
+          if gh release view "${{ env.RELEASE_TAG }}" >/dev/null 2>&1; then
+            gh release upload "${{ env.RELEASE_TAG }}" "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" --clobber
           else
-            gh release create "v${{ env.RELEASE_TAG }}" "SkipMe.db-plugin-v${{ env.RELEASE_TAG }}.zip" --title "v${{ env.RELEASE_TAG }}" --generate-notes --target "${{ github.event.repository.default_branch }}" ${PRERELEASE_FLAG}
+            gh release create "${{ env.RELEASE_TAG }}" "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" --title "${{ env.RELEASE_TAG }}" --generate-notes --target "${{ github.event.repository.default_branch }}" ${PRERELEASE_FLAG}
           fi
 
       - name: Commit updated build.yaml
         if: ${{ inputs.prerelease != true }}
         shell: bash
         run: |
-          sed -i "s/version: \"${{ env.CURRENT_VERSION }}\"/version: \"${{ env.RELEASE_TAG }}\"/" build.yaml
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add build.yaml
-          git commit -m "Increment patch version to ${{ env.RELEASE_TAG }}"
+          git add Directory.Build.props
+          git commit -m "Increment patch version to ${{ env.NEW_VERSION }}"
           git push

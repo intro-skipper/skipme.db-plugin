@@ -15,6 +15,7 @@
   <ItemGroup>
     <PackageReference Include="Jellyfin.Controller" Version="10.11.5" />
     <PackageReference Include="Jellyfin.Model" Version="10.11.5" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.4" />
   </ItemGroup>
 
   <ItemGroup>

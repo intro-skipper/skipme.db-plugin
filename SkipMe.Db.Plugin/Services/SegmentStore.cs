@@ -4,39 +4,49 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Configuration;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using SkipMe.Db.Plugin.Models;
 
 namespace SkipMe.Db.Plugin.Services;
 
 /// <summary>
-/// Local JSON-backed store for crowd-sourced media segments retrieved from the SkipMe.db API.
-/// Segment lists are keyed by Jellyfin item ID and persisted to a file in the data directory.
+/// SQLite-backed store for crowd-sourced media segments retrieved from the SkipMe.db API.
+/// Segment lists are keyed by Jellyfin item ID and persisted to a SQLite database in the
+/// data directory.  The schema is indexed on ItemId so lookups remain fast regardless of
+/// library size.
 /// </summary>
-public sealed class SegmentStore
+public sealed class SegmentStore : IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
-
-    private readonly string _dbPath;
+    private readonly SqliteConnection _connection;
     private readonly ILogger<SegmentStore> _logger;
-    private readonly object _syncRoot = new();
+    private readonly SemaphoreSlim _semaphore = new(1, 1);
 
-    private Dictionary<Guid, List<StoredSegment>> _segments = [];
+    private bool _disposed;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SegmentStore"/> class.
-    /// Loads any previously persisted data from disk.
+    /// Opens or creates the SQLite database and ensures the schema is up to date.
     /// </summary>
     /// <param name="appPaths">Application paths used to locate the data directory.</param>
     /// <param name="logger">The logger.</param>
     public SegmentStore(IApplicationPaths appPaths, ILogger<SegmentStore> logger)
     {
-        _dbPath = Path.Combine(appPaths.DataPath, "skipme-segments.json");
         _logger = logger;
-        Load();
+
+        var dbPath = Path.Combine(appPaths.DataPath, "skipme-segments.db");
+        var connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = dbPath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+        }.ToString();
+
+        _connection = new SqliteConnection(connectionString);
+        _connection.Open();
+        InitializeSchema();
     }
 
     /// <summary>
@@ -46,9 +56,32 @@ public sealed class SegmentStore
     /// <returns>A read-only list of segments, or <c>null</c>.</returns>
     public IReadOnlyList<StoredSegment>? GetSegments(Guid itemId)
     {
-        lock (_syncRoot)
+        var key = itemId.ToString();
+        _semaphore.Wait();
+        try
         {
-            return _segments.TryGetValue(itemId, out var segments) ? segments : null;
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "SELECT Type, StartMs, EndMs FROM Segments WHERE ItemId = @itemId";
+            cmd.Parameters.AddWithValue("@itemId", key);
+
+            using var reader = cmd.ExecuteReader();
+            List<StoredSegment>? results = null;
+            while (reader.Read())
+            {
+                results ??= [];
+                results.Add(new StoredSegment
+                {
+                    Type = reader.GetString(0),
+                    StartMs = reader.GetInt64(1),
+                    EndMs = reader.GetInt64(2),
+                });
+            }
+
+            return results;
+        }
+        finally
+        {
+            _semaphore.Release();
         }
     }
 
@@ -60,63 +93,102 @@ public sealed class SegmentStore
     /// <returns>A task that completes when the data has been persisted.</returns>
     public async Task ReplaceAllAsync(Dictionary<Guid, List<StoredSegment>> newSegments)
     {
-        lock (_syncRoot)
-        {
-            _segments = newSegments;
-        }
-
-        await SaveAsync().ConfigureAwait(false);
-    }
-
-    private async Task SaveAsync()
-    {
-        Dictionary<Guid, List<StoredSegment>> snapshot;
-        lock (_syncRoot)
-        {
-            snapshot = _segments;
-        }
-
-        var tempPath = _dbPath + ".tmp";
+        await _semaphore.WaitAsync().ConfigureAwait(false);
         try
         {
-            var json = JsonSerializer.Serialize(snapshot, JsonOptions);
-            await File.WriteAllTextAsync(tempPath, json).ConfigureAwait(false);
-            File.Move(tempPath, _dbPath, overwrite: true);
-            _logger.LogInformation(
-                "Saved {Count} item(s) to segment store at {Path}",
-                snapshot.Count,
-                _dbPath);
+            var dbTx = await _connection.BeginTransactionAsync().ConfigureAwait(false);
+            var sqliteTx = (SqliteTransaction)dbTx;
+            await using (dbTx.ConfigureAwait(false))
+            {
+                try
+                {
+                    using (var deleteCmd = _connection.CreateCommand())
+                    {
+                        deleteCmd.Transaction = sqliteTx;
+                        deleteCmd.CommandText = "DELETE FROM Segments";
+                        await deleteCmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                    }
+
+                    using (var insertCmd = _connection.CreateCommand())
+                    {
+                        insertCmd.Transaction = sqliteTx;
+                        insertCmd.CommandText =
+                            "INSERT INTO Segments (ItemId, Type, StartMs, EndMs) VALUES (@itemId, @type, @startMs, @endMs)";
+                        var pItemId = insertCmd.Parameters.Add("@itemId", SqliteType.Text);
+                        var pType = insertCmd.Parameters.Add("@type", SqliteType.Text);
+                        var pStartMs = insertCmd.Parameters.Add("@startMs", SqliteType.Integer);
+                        var pEndMs = insertCmd.Parameters.Add("@endMs", SqliteType.Integer);
+
+                        foreach (var (itemId, segments) in newSegments)
+                        {
+                            pItemId.Value = itemId.ToString();
+                            foreach (var seg in segments)
+                            {
+                                pType.Value = seg.Type;
+                                pStartMs.Value = seg.StartMs;
+                                pEndMs.Value = seg.EndMs;
+                                await insertCmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                            }
+                        }
+                    }
+
+                    await dbTx.CommitAsync().ConfigureAwait(false);
+                    _logger.LogInformation(
+                        "Saved segments for {Count} item(s) to segment database",
+                        newSegments.Count);
+                }
+                catch
+                {
+                    await dbTx.RollbackAsync().ConfigureAwait(false);
+                    throw;
+                }
+            }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        finally
         {
-            _logger.LogWarning(ex, "Failed to save segment store to {Path}", _dbPath);
+            _semaphore.Release();
         }
     }
 
-    private void Load()
+    /// <inheritdoc />
+    public void Dispose()
     {
-        if (!File.Exists(_dbPath))
+        if (_disposed)
         {
-            _logger.LogDebug("Segment store file not found at {Path}, starting empty", _dbPath);
             return;
         }
 
-        try
-        {
-            var json = File.ReadAllText(_dbPath);
-            var loaded = JsonSerializer.Deserialize<Dictionary<Guid, List<StoredSegment>>>(json);
-            if (loaded is not null)
-            {
-                _segments = loaded;
-                _logger.LogInformation(
-                    "Loaded {Count} item(s) from segment store at {Path}",
-                    _segments.Count,
-                    _dbPath);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
-        {
-            _logger.LogWarning(ex, "Failed to load segment store from {Path}, starting empty", _dbPath);
-        }
+        _disposed = true;
+        _semaphore.Dispose();
+        _connection.Dispose();
+    }
+
+    private void InitializeSchema()
+    {
+        using var pragmaJournal = _connection.CreateCommand();
+        pragmaJournal.CommandText = "PRAGMA journal_mode=WAL";
+        pragmaJournal.ExecuteNonQuery();
+
+        using var pragmaSync = _connection.CreateCommand();
+        pragmaSync.CommandText = "PRAGMA synchronous=NORMAL";
+        pragmaSync.ExecuteNonQuery();
+
+        using var createTable = _connection.CreateCommand();
+        createTable.CommandText = """
+            CREATE TABLE IF NOT EXISTS Segments (
+                ItemId  TEXT    NOT NULL,
+                Type    TEXT    NOT NULL,
+                StartMs INTEGER NOT NULL,
+                EndMs   INTEGER NOT NULL
+            )
+            """;
+        createTable.ExecuteNonQuery();
+
+        using var createIndex = _connection.CreateCommand();
+        createIndex.CommandText =
+            "CREATE INDEX IF NOT EXISTS IX_Segments_ItemId ON Segments(ItemId)";
+        createIndex.ExecuteNonQuery();
+
+        _logger.LogDebug("Segment database schema initialized");
     }
 }

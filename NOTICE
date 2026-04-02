@@ -1,0 +1,48 @@
+SkipMe.db Plugin — Notices
+==========================
+
+Software License
+----------------
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation, version 3 only.
+
+See the LICENSE file for the full GPL-3.0-only text.
+
+The following additional terms apply to this program pursuant to Section 7
+of the GNU General Public License, version 3:
+
+  (i)  You must retain this NOTICE file, unmodified, in all copies or
+       substantial portions of the software (GPL-3.0 Section 7(b)).
+
+  (ii) You may not misrepresent the origin of the segment timestamp data
+       produced or cached by this software (GPL-3.0 Section 7(c)).
+
+Runtime-Cached Data Terms
+--------------------------
+The segment timestamp data that this plugin fetches from the SkipMe.db API
+(https://db.skipme.workers.dev) and stores locally in a database file
+(skipme-segments.db) is crowd-sourced community data and is distinct from
+the plugin's source code.  It is NOT licensed under the GPL.
+
+The locally-cached data ("Cached Data") is provided solely to supply media
+segment timestamps to the Jellyfin media server through this plugin.  By
+using this plugin you agree that:
+
+  1. The Cached Data may only be used to provide skip-segment information
+     within the Jellyfin media server via this plugin.
+
+  2. Extraction, redistribution, or use of the Cached Data for any purpose
+     other than providing media segments within Jellyfin — including but
+     not limited to populating competing or alternative skip-segment
+     services, automated harvesting, or bulk redistribution — is not
+     permitted without the express written consent of the SkipMe.db
+     project maintainers (https://github.com/intro-skipper).
+
+  3. The Cached Data must not be presented as independently collected or
+     owned by any party other than the SkipMe.db contributor community.
+
+Note: These data terms govern only the runtime-cached data files produced
+by this software.  Your rights to use, study, modify, and distribute the
+software source code remain fully governed by GPL-3.0-only and are not
+affected by the data terms above.

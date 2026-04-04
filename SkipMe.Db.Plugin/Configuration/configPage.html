@@ -802,18 +802,24 @@
         hide('skipme-empty');
         hide('skipme-series-container');
 
-        var userId = ApiClient.getCurrentUserId();
-
-        Promise.all([
-            ApiClient.getPluginConfiguration(PLUGIN_ID),
-            ApiClient.getItems(userId, {
-                IncludeItemTypes: 'Series',
-                Recursive: true,
-                Fields: 'ImageTags',
-                SortBy: 'SortName',
-                SortOrder: 'Ascending',
-            }),
-        ]).then(function (results) {
+        // Defer execution via Promise.resolve() so that any synchronous throw
+        // (e.g. ApiClient method missing in a particular Jellyfin version) is
+        // converted into a rejected promise that .catch() can handle.  Without
+        // this, a sync throw would escape the chain, leave initRunning=true
+        // permanently, and prevent every subsequent retry from ever running.
+        Promise.resolve().then(function () {
+            var userId = ApiClient.getCurrentUserId();
+            return Promise.all([
+                ApiClient.getPluginConfiguration(PLUGIN_ID),
+                ApiClient.getItems(userId, {
+                    IncludeItemTypes: 'Series',
+                    Recursive: true,
+                    Fields: 'ImageTags',
+                    SortBy: 'SortName',
+                    SortOrder: 'Ascending',
+                }),
+            ]);
+        }).then(function (results) {
             var config = results[0];
             var seriesResult = results[1];
 
@@ -872,9 +878,13 @@
 
     function wireEvents() {
         if (eventsWired) { return; }
+        // Guard against being called before the DOM is ready.
+        var searchEl = el('skipme-search');
+        var saveBtn  = el('skipme-save-btn');
+        if (!searchEl || !saveBtn) { return; }
         eventsWired = true;
 
-        el('skipme-search').addEventListener('input', function (e) {
+        searchEl.addEventListener('input', function (e) {
             clearTimeout(searchDebounce);
             var query = e.target.value.trim().toLowerCase();
             searchDebounce = setTimeout(function () {
@@ -883,7 +893,7 @@
             }, 150);
         });
 
-        el('skipme-save-btn').addEventListener('click', save);
+        saveBtn.addEventListener('click', save);
     }
 
     // ── Page lifecycle ────────────────────────────────────────────────────────
@@ -894,12 +904,18 @@
 
     var pageContainer = el('SkipMeSettingsPage');
     if (pageContainer) {
+        // 'pageshow'  – Jellyfin ≤ 10.8 / legacy Emby-style routing
+        // 'viewshow'  – Jellyfin 10.9+ view-manager routing
         pageContainer.addEventListener('pageshow', safeInit);
+        pageContainer.addEventListener('viewshow', safeInit);
     }
 
-    // Jellyfin may dispatch `pageshow` before this script is evaluated
-    // (SPA timing), so also initialise directly to guarantee the library loads.
-    safeInit();
+    // If the page element is already in the DOM when this script runs (Jellyfin
+    // injects HTML before executing scripts), initialise immediately instead of
+    // waiting for an event that may already have been dispatched.
+    if (el('skipme-loading')) {
+        safeInit();
+    }
 }());
 </script>
 

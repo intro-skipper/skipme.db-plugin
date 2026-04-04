@@ -80,14 +80,6 @@
     margin: 1.2em 0 0.4em;
 }
 
-/* ── Series card placeholder (before lazy hydration) ─ */
-.skipme-series-placeholder {
-    min-height: 76px;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
 /* ── Series card ─────────────────────────── */
 .skipme-series-card {
     border-radius: 8px;
@@ -418,11 +410,8 @@
     /** Cache of season arrays keyed by series ID – avoids redundant round-trips. */
     var seasonCache = Object.create(null);
 
-    /** Tracks the active IntersectionObserver for the series list. */
-    var seriesObserver = null;
-
     /** Timer handle used to debounce the search-filter input. */
-    var searchTimeout = 0;
+    var searchDebounce = 0;
 
     // ── DOM helpers ───────────────────────────────────────────────────────────
     function el(id) { return document.getElementById(id); }
@@ -780,12 +769,6 @@
         var list = el('skipme-series-list');
         list.innerHTML = '';
 
-        // Disconnect the previous observer so stale placeholders are not hydrated.
-        if (seriesObserver) {
-            seriesObserver.disconnect();
-            seriesObserver = null;
-        }
-
         var filtered = filterQuery
             ? allSeries.filter(function (s) {
                 return (s.Name || '').toLowerCase().indexOf(filterQuery) !== -1;
@@ -801,38 +784,11 @@
         hide('skipme-empty');
         show('skipme-series-container');
 
-        // Create one lightweight placeholder per series so the page responds immediately.
-        // Real cards are inserted by the IntersectionObserver as placeholders scroll into view.
         var frag = document.createDocumentFragment();
         for (var i = 0; i < filtered.length; i++) {
-            var ph = document.createElement('div');
-            ph.className = 'skipme-series-placeholder';
-            ph.dataset.idx = i;
-            frag.appendChild(ph);
+            frag.appendChild(createSeriesCard(filtered[i]));
         }
         list.appendChild(frag);
-
-        // `filtered` is captured by the closure – each observer instance has its own
-        // snapshot, so a subsequent renderSeriesList() call cannot corrupt it.
-        var obs = new IntersectionObserver(function (entries) {
-            for (var e = 0; e < entries.length; e++) {
-                var entry = entries[e];
-                if (!entry.isIntersecting) { continue; }
-                var placeholder = entry.target;
-                var idx = parseInt(placeholder.dataset.idx, 10);
-                var series = filtered[idx];
-                if (series && placeholder.parentNode) {
-                    placeholder.parentNode.replaceChild(createSeriesCard(series), placeholder);
-                }
-                obs.unobserve(placeholder);
-            }
-        }, { rootMargin: '300px 0px' });
-        seriesObserver = obs;
-
-        var placeholders = list.querySelectorAll('.skipme-series-placeholder');
-        for (var j = 0; j < placeholders.length; j++) {
-            obs.observe(placeholders[j]);
-        }
     }
 
     // ── Initialisation ────────────────────────────────────────────────────────
@@ -914,9 +870,9 @@
         eventsWired = true;
 
         el('skipme-search').addEventListener('input', function (e) {
-            clearTimeout(searchTimeout);
+            clearTimeout(searchDebounce);
             var query = e.target.value.trim().toLowerCase();
-            searchTimeout = setTimeout(function () {
+            searchDebounce = setTimeout(function () {
                 filterQuery = query;
                 renderSeriesList();
             }, 150);

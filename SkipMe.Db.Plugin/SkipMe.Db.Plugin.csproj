@@ -12,6 +12,21 @@
     <CodeAnalysisRuleSet>../jellyfin.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <NpmCommand Condition="'$(OS)' == 'Windows_NT'">npm.cmd</NpmCommand>
+    <NpmCommand Condition="'$(OS)' != 'Windows_NT'">npm</NpmCommand>
+  </PropertyGroup>
+
+  <!-- Build the TypeScript configuration page before embedding it as a resource. -->
+  <Target Name="NpmInstallWeb" BeforeTargets="NpmBuildWeb"
+          Condition="!Exists('$(MSBuildProjectDirectory)/../web/node_modules')">
+    <Exec Command="$(NpmCommand) ci" WorkingDirectory="$(MSBuildProjectDirectory)/../web" />
+  </Target>
+
+  <Target Name="NpmBuildWeb" BeforeTargets="BeforeBuild">
+    <Exec Command="$(NpmCommand) run build" WorkingDirectory="$(MSBuildProjectDirectory)/../web" />
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="Jellyfin.Controller" Version="10.11.5" />
     <PackageReference Include="Jellyfin.Model" Version="10.11.5" />

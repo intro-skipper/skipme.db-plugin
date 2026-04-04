@@ -30,6 +30,9 @@ public sealed class SegmentStore : IDisposable
     /// <summary>
     /// Initializes a new instance of the <see cref="SegmentStore"/> class.
     /// Opens or creates the SQLite database and ensures the schema is up to date.
+    /// Also performs one-time migration steps: moves the database from the root
+    /// data directory into the <c>introskipper</c> subdirectory if needed, and
+    /// removes the obsolete JSON store that predated the SQLite implementation.
     /// </summary>
     /// <param name="appPaths">Application paths used to locate the data directory.</param>
     /// <param name="logger">The logger.</param>
@@ -37,10 +40,46 @@ public sealed class SegmentStore : IDisposable
     {
         _logger = logger;
 
-        var dbPath = Path.Combine(appPaths.DataPath, "skipme-segments.db");
+        var subDir = Path.Combine(appPaths.DataPath, "introskipper");
+        Directory.CreateDirectory(subDir);
+
+        var newDbPath = Path.Combine(subDir, "skipme-segments.db");
+        var oldDbPath = Path.Combine(appPaths.DataPath, "skipme-segments.db");
+        var oldJsonPath = Path.Combine(appPaths.DataPath, "skipme-segments.json");
+
+        // Move the database from the root data directory into the introskipper
+        // subdirectory.  Only migrate when the old file exists and the new one
+        // does not, to avoid clobbering a database that was already migrated.
+        if (File.Exists(oldDbPath) && !File.Exists(newDbPath))
+        {
+            try
+            {
+                File.Move(oldDbPath, newDbPath);
+                _logger.LogInformation("Migrated segment database to {Path}", newDbPath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Failed to migrate segment database from {OldPath} to {NewPath}", oldDbPath, newDbPath);
+            }
+        }
+
+        // Remove the obsolete JSON store that was replaced by the SQLite database.
+        if (File.Exists(oldJsonPath))
+        {
+            try
+            {
+                File.Delete(oldJsonPath);
+                _logger.LogInformation("Removed obsolete JSON segment store at {Path}", oldJsonPath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Failed to remove obsolete JSON segment store at {Path}", oldJsonPath);
+            }
+        }
+
         var connectionString = new SqliteConnectionStringBuilder
         {
-            DataSource = dbPath,
+            DataSource = newDbPath,
             Mode = SqliteOpenMode.ReadWriteCreate,
         }.ToString();
 

@@ -15,3 +15,10 @@ packages/
 ## OS files
 .DS_Store
 Thumbs.db
+
+## Web / Node.js
+web/node_modules/
+
+## Generated web assets (built from web/src by CI/npm run build)
+SkipMe.Db.Plugin/Configuration/index.js
+SkipMe.Db.Plugin/Configuration/index.css

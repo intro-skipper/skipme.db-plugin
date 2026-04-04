@@ -792,7 +792,11 @@
     }
 
     // ── Initialisation ────────────────────────────────────────────────────────
+    var initRunning = false;
+
     function init() {
+        if (initRunning) { return; }
+        initRunning = true;
         show('skipme-loading');
         hide('skipme-error');
         hide('skipme-empty');
@@ -838,6 +842,7 @@
             console.error('[SkipMe.db] Failed to initialise settings page:', err);
             show('skipme-error');
         }).finally(function () {
+            initRunning = false;
             hide('skipme-loading');
         });
     }
@@ -882,13 +887,19 @@
     }
 
     // ── Page lifecycle ────────────────────────────────────────────────────────
+    function safeInit() {
+        wireEvents();
+        init();
+    }
+
     var pageContainer = el('SkipMeSettingsPage');
     if (pageContainer) {
-        pageContainer.addEventListener('pageshow', function () {
-            wireEvents();
-            init();
-        });
+        pageContainer.addEventListener('pageshow', safeInit);
     }
+
+    // Jellyfin may dispatch `pageshow` before this script is evaluated
+    // (SPA timing), so also initialise directly to guarantee the library loads.
+    safeInit();
 }());
 </script>
 

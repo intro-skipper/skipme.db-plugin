@@ -71,7 +71,8 @@ public class SyncSegmentsTask : IScheduledTask
             new TaskTriggerInfo
             {
                 Type = TaskTriggerInfoType.WeeklyTrigger,
-                TimeOfDayTicks = TimeSpan.FromHours(3).Ticks,
+                DayOfWeek = DayOfWeek.Sunday,
+                TimeOfDayTicks = TimeSpan.FromHours(1).Ticks,
             },
         ];
     }

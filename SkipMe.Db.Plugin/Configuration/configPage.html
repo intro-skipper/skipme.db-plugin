@@ -47,6 +47,9 @@
             </div>
 
             <div id="skipme-series-container" style="display:none">
+                <p id="skipme-truncation-note"
+                   class="skipme-truncation-note"
+                   style="display:none"></p>
                 <div id="skipme-series-list"></div>
             </div>
 
@@ -359,8 +362,18 @@
     border-width: 2px;
 }
 
-/* ── Footer ──────────────────────────────── */
-.skipme-footer {
+/* ── Truncation warning ───────────────────── */
+.skipme-truncation-note {
+    font-size: 0.82em;
+    color: #f5a623;
+    margin: 0 0 0.8em;
+    padding: 6px 10px;
+    border-left: 3px solid #f5a623;
+    background: rgba(245, 166, 35, 0.08);
+    border-radius: 0 4px 4px 0;
+}
+
+/* ── Footer ──────────────────────────────── */.skipme-footer {
     margin-top: 1.5em;
     display: flex;
     align-items: center;
@@ -785,7 +798,6 @@
                 Fields: 'PrimaryImageAspectRatio,ImageTags',
                 SortBy: 'SortName',
                 SortOrder: 'Ascending',
-                Limit: 1000,
             }),
         ]).then(function (results) {
             var config = results[0];
@@ -797,6 +809,19 @@
             allSeries = seriesResult.Items || [];
             filterQuery = '';
             el('skipme-search').value = '';
+
+            // Warn when the server returned fewer items than the total record count.
+            var truncated = seriesResult.TotalRecordCount != null
+                && seriesResult.TotalRecordCount > allSeries.length;
+            var noteEl = el('skipme-truncation-note');
+            if (truncated && noteEl) {
+                noteEl.textContent =
+                    'Your library contains ' + seriesResult.TotalRecordCount + ' series but only ' +
+                    allSeries.length + ' could be loaded. Use the search bar to find hidden series.';
+                noteEl.style.display = '';
+            } else if (noteEl) {
+                noteEl.style.display = 'none';
+            }
 
             renderSeriesList();
         }).catch(function (err) {

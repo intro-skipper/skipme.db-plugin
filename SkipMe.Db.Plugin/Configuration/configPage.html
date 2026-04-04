@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+</head>
+<body>
+
+<div id="SkipMeSettingsPage"
+     data-role="page"
+     class="page type-interior pluginConfigurationPage"
+     data-require="emby-button,emby-input">
+    <div data-role="content">
+        <div class="content-primary">
+
+            <div class="sectionTitleContainer sectionTitleContainer-cards">
+                <h2 class="sectionTitle">SkipMe.db – Series &amp; Season Settings</h2>
+            </div>
+
+            <p class="fieldDescription">
+                Toggle crowd-sourced segment data on or off for individual series or seasons.
+                Segments remain in the local database but will not be surfaced to Jellyfin when disabled.
+            </p>
+
+            <div class="verticalSection">
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="skipme-search">Filter series</label>
+                    <input id="skipme-search"
+                           type="search"
+                           is="emby-input"
+                           class="emby-input"
+                           autocomplete="off"
+                           placeholder="Start typing a series name…" />
+                </div>
+            </div>
+
+            <div id="skipme-loading" class="skipme-loading">
+                <div class="skipme-spinner"></div>
+                <p>Loading your library…</p>
+            </div>
+
+            <div id="skipme-error" class="skipme-message skipme-error" style="display:none">
+                <p>⚠ Failed to load library data. Please refresh the page.</p>
+            </div>
+
+            <div id="skipme-empty" class="skipme-message" style="display:none">
+                <p>No TV series found in your library.</p>
+            </div>
+
+            <div id="skipme-series-container" style="display:none">
+                <div id="skipme-series-list"></div>
+            </div>
+
+            <div class="skipme-footer">
+                <button id="skipme-save-btn"
+                        is="emby-button"
+                        type="button"
+                        class="raised button-submit emby-button">
+                    Save Settings
+                </button>
+                <span id="skipme-status" class="skipme-status"></span>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<style>
+/* ══════════════════════════════════════════
+   SkipMe.db Configuration Page Styles
+   ══════════════════════════════════════════ */
+
+/* ── Series list container ───────────────── */
+#skipme-series-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 1.2em 0 0.4em;
+}
+
+/* ── Series card ─────────────────────────── */
+.skipme-series-card {
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    transition: border-color 0.18s;
+}
+
+.skipme-series-card:hover {
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* Header row (always visible) */
+.skipme-series-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 14px;
+    cursor: pointer;
+    user-select: none;
+    min-height: 76px;
+}
+
+.skipme-series-poster {
+    width: 46px;
+    height: 68px;
+    border-radius: 4px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.07);
+    display: block;
+}
+
+.skipme-series-poster-placeholder {
+    width: 46px;
+    height: 68px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.07);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4em;
+}
+
+.skipme-series-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.skipme-series-name {
+    font-size: 0.95em;
+    font-weight: 600;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.skipme-series-hint {
+    font-size: 0.73em;
+    margin-top: 4px;
+    opacity: 0.5;
+    transition: color 0.2s, opacity 0.2s;
+}
+
+.skipme-series-hint.is-off {
+    opacity: 1;
+    color: #f5a623;
+}
+
+.skipme-series-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+/* ── Expand chevron ──────────────────────── */
+.skipme-chevron {
+    width: 18px;
+    height: 18px;
+    opacity: 0.4;
+    flex-shrink: 0;
+    transition: transform 0.2s ease, opacity 0.2s;
+}
+
+.skipme-series-card.is-expanded .skipme-chevron {
+    transform: rotate(180deg);
+    opacity: 0.65;
+}
+
+/* ── Toggle switch ───────────────────────── */
+.skipme-toggle {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.skipme-toggle input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.skipme-toggle-track {
+    display: inline-block;
+    position: relative;
+    width: 42px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+    transition: background 0.2s;
+}
+
+.skipme-toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    transition: transform 0.2s;
+}
+
+.skipme-toggle input:checked ~ .skipme-toggle-track {
+    background: #00a4dc;
+}
+
+.skipme-toggle input:checked ~ .skipme-toggle-track .skipme-toggle-thumb {
+    transform: translateX(18px);
+}
+
+.skipme-toggle input:disabled ~ .skipme-toggle-track {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* ── Seasons panel ───────────────────────── */
+.skipme-seasons-panel {
+    display: none;
+    padding: 12px 14px 16px;
+    background: rgba(0, 0, 0, 0.18);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.skipme-series-card.is-expanded .skipme-seasons-panel {
+    display: block;
+}
+
+.skipme-seasons-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+    gap: 10px;
+}
+
+/* ── Season card ─────────────────────────── */
+.skipme-season-card {
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.15s, opacity 0.2s;
+}
+
+.skipme-season-poster-wrap {
+    position: relative;
+    aspect-ratio: 2 / 3;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.skipme-season-poster {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.skipme-season-no-image {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2em;
+}
+
+/* Dimming overlay shown when the parent series is disabled */
+.skipme-season-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 0.62em;
+    color: rgba(255, 255, 255, 0.65);
+    padding: 4px;
+    line-height: 1.3;
+}
+
+.skipme-season-footer {
+    padding: 6px 8px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+}
+
+.skipme-season-name {
+    font-size: 0.74em;
+    text-align: center;
+    opacity: 0.9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
+}
+
+/* ── Loading / state messages ────────────── */
+.skipme-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 48px 20px;
+    opacity: 0.5;
+}
+
+.skipme-spinner {
+    width: 34px;
+    height: 34px;
+    border: 3px solid rgba(255, 255, 255, 0.12);
+    border-top-color: #00a4dc;
+    border-radius: 50%;
+    animation: skipme-spin 0.7s linear infinite;
+}
+
+@keyframes skipme-spin {
+    to { transform: rotate(360deg); }
+}
+
+.skipme-message {
+    padding: 40px 20px;
+    text-align: center;
+    opacity: 0.55;
+}
+
+.skipme-error {
+    opacity: 1;
+    color: #f44336;
+}
+
+/* ── Season loading indicator ────────────── */
+.skipme-seasons-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    opacity: 0.45;
+    font-size: 0.85em;
+}
+
+.skipme-seasons-loading .skipme-spinner {
+    width: 20px;
+    height: 20px;
+    border-width: 2px;
+}
+
+/* ── Footer ──────────────────────────────── */
+.skipme-footer {
+    margin-top: 1.5em;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.skipme-status {
+    font-size: 0.85em;
+    transition: opacity 0.3s;
+}
+
+.skipme-status.ok  { color: #4caf50; }
+.skipme-status.err { color: #f44336; }
+</style>
+
+<script>
+/* ══════════════════════════════════════════
+   SkipMe.db Configuration Page – Logic
+   ══════════════════════════════════════════ */
+(function () {
+    'use strict';
+
+    /** Jellyfin plugin GUID for SkipMe.db (must match Plugin.Id in C#). */
+    var PLUGIN_ID = 'b2a63e62-0ac5-4575-9ad2-2c7534ccb83d';
+
+    // ── Mutable state ─────────────────────────────────────────────────────────
+    var disabledSeriesIds = new Set();
+    var disabledSeasonIds = new Set();
+    var allSeries = [];
+    var filterQuery = '';
+
+    /** Cache of season arrays keyed by series ID – avoids redundant round-trips. */
+    var seasonCache = Object.create(null);
+
+    // ── DOM helpers ───────────────────────────────────────────────────────────
+    function el(id) { return document.getElementById(id); }
+    function show(id) { el(id).style.display = ''; }
+    function hide(id) { el(id).style.display = 'none'; }
+
+    function setStatus(msg, type) {
+        var s = el('skipme-status');
+        s.textContent = msg;
+        s.className = 'skipme-status' + (type ? ' ' + type : '');
+        if (type === 'ok') {
+            setTimeout(function () {
+                s.textContent = '';
+                s.className = 'skipme-status';
+            }, 3000);
+        }
+    }
+
+    // ── Image URL construction ────────────────────────────────────────────────
+    /**
+     * Returns an authenticated Jellyfin image URL for the given item and maxWidth,
+     * or null when the item carries no Primary image tag.
+     */
+    function itemImageUrl(item, maxWidth) {
+        var tag = item.ImageTags && item.ImageTags.Primary;
+        if (!tag) { return null; }
+        var base = ApiClient.serverAddress().replace(/\/$/, '');
+        var token = ApiClient.accessToken();
+        return (
+            base +
+            '/Items/' + encodeURIComponent(item.Id) +
+            '/Images/Primary' +
+            '?tag=' + encodeURIComponent(tag) +
+            '&maxWidth=' + maxWidth +
+            '&api_key=' + encodeURIComponent(token)
+        );
+    }
+
+    // ── Toggle switch component ───────────────────────────────────────────────
+    /**
+     * Creates an accessible CSS toggle switch.
+     * @param {string}   id        – unique id for the hidden <input>
+     * @param {boolean}  checked   – initial state (true = enabled = segments on)
+     * @param {Function} onChange  – called with the new boolean value on change
+     * @param {string}   [title]   – tooltip text
+     * @returns {{ element: HTMLElement, input: HTMLInputElement }}
+     */
+    function createToggle(id, checked, onChange, title) {
+        var label = document.createElement('label');
+        label.className = 'skipme-toggle';
+        label.title = title || (checked ? 'Enabled – click to disable' : 'Disabled – click to enable');
+
+        var input = document.createElement('input');
+        input.type = 'checkbox';
+        input.id = id;
+        input.checked = checked;
+
+        var track = document.createElement('span');
+        track.className = 'skipme-toggle-track';
+
+        var thumb = document.createElement('span');
+        thumb.className = 'skipme-toggle-thumb';
+        track.appendChild(thumb);
+
+        label.appendChild(input);
+        label.appendChild(track);
+
+        input.addEventListener('change', function () {
+            label.title = input.checked
+                ? 'Enabled – click to disable'
+                : 'Disabled – click to enable';
+            onChange(input.checked);
+        });
+
+        // Stop clicks from bubbling to the series-header expand handler.
+        label.addEventListener('click', function (e) { e.stopPropagation(); });
+
+        return { element: label, input: input };
+    }
+
+    // ── SVG chevron ───────────────────────────────────────────────────────────
+    function createChevron() {
+        var ns = 'http://www.w3.org/2000/svg';
+        var svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2.5');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.setAttribute('class', 'skipme-chevron');
+        svg.setAttribute('aria-hidden', 'true');
+        var poly = document.createElementNS(ns, 'polyline');
+        poly.setAttribute('points', '6 9 12 15 18 9');
+        svg.appendChild(poly);
+        return svg;
+    }
+
+    // ── Season card ───────────────────────────────────────────────────────────
+    function createSeasonCard(season, seriesId) {
+        var seriesDisabled = disabledSeriesIds.has(seriesId);
+        var seasonDisabled = disabledSeasonIds.has(season.Id);
+
+        var card = document.createElement('div');
+        card.className = 'skipme-season-card';
+
+        // Poster wrapper
+        var posterWrap = document.createElement('div');
+        posterWrap.className = 'skipme-season-poster-wrap';
+
+        var imgSrc = itemImageUrl(season, 200);
+        if (imgSrc) {
+            var img = document.createElement('img');
+            img.className = 'skipme-season-poster';
+            img.alt = '';
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            img.src = imgSrc;
+            img.onerror = function () {
+                img.style.display = 'none';
+                var ph = document.createElement('div');
+                ph.className = 'skipme-season-no-image';
+                ph.textContent = '📺';
+                posterWrap.insertBefore(ph, posterWrap.firstChild);
+            };
+            posterWrap.appendChild(img);
+        } else {
+            var ph = document.createElement('div');
+            ph.className = 'skipme-season-no-image';
+            ph.textContent = '📺';
+            posterWrap.appendChild(ph);
+        }
+
+        // Overlay when the parent series is already disabled
+        if (seriesDisabled) {
+            var overlay = document.createElement('div');
+            overlay.className = 'skipme-season-overlay';
+            overlay.textContent = 'Disabled via series';
+            posterWrap.appendChild(overlay);
+        }
+
+        card.appendChild(posterWrap);
+
+        // Footer: season name + toggle
+        var footer = document.createElement('div');
+        footer.className = 'skipme-season-footer';
+
+        var nameEl = document.createElement('div');
+        nameEl.className = 'skipme-season-name';
+        var displayName = season.Name || ('Season ' + (season.IndexNumber || '?'));
+        nameEl.textContent = displayName;
+        nameEl.title = displayName;
+
+        var tog = createToggle(
+            'skipme-season-' + season.Id,
+            !seasonDisabled,
+            function (enabled) {
+                if (enabled) {
+                    disabledSeasonIds.delete(season.Id);
+                    card.style.opacity = '';
+                } else {
+                    disabledSeasonIds.add(season.Id);
+                    card.style.opacity = '0.6';
+                }
+            },
+            seasonDisabled
+                ? 'Season disabled – click to enable'
+                : 'Season enabled – click to disable'
+        );
+
+        if (seriesDisabled) {
+            tog.input.disabled = true;
+            tog.element.title = 'Enable the series to manage seasons individually';
+        }
+
+        if (seasonDisabled) { card.style.opacity = '0.6'; }
+
+        footer.appendChild(nameEl);
+        footer.appendChild(tog.element);
+        card.appendChild(footer);
+
+        return card;
+    }
+
+    // ── Seasons grid rendering ────────────────────────────────────────────────
+    function renderSeasonsGrid(panel, seasons, seriesId) {
+        panel.innerHTML = '';
+
+        if (!seasons.length) {
+            var empty = document.createElement('p');
+            empty.style.cssText = 'opacity:0.45;font-size:0.85em;margin:4px 0';
+            empty.textContent = 'No seasons found.';
+            panel.appendChild(empty);
+            return;
+        }
+
+        var grid = document.createElement('div');
+        grid.className = 'skipme-seasons-grid';
+
+        for (var i = 0; i < seasons.length; i++) {
+            grid.appendChild(createSeasonCard(seasons[i], seriesId));
+        }
+
+        panel.appendChild(grid);
+    }
+
+    function loadAndRenderSeasons(panel, seriesId) {
+        if (seasonCache[seriesId]) {
+            renderSeasonsGrid(panel, seasonCache[seriesId], seriesId);
+            return;
+        }
+
+        // Show inline loading indicator
+        panel.innerHTML = '';
+        var loadingEl = document.createElement('div');
+        loadingEl.className = 'skipme-seasons-loading';
+        loadingEl.innerHTML = '<div class="skipme-spinner"></div><span>Loading seasons…</span>';
+        panel.appendChild(loadingEl);
+
+        var userId = ApiClient.getCurrentUserId();
+        ApiClient.getItems(userId, {
+            ParentId: seriesId,
+            IncludeItemTypes: 'Season',
+            Fields: 'PrimaryImageAspectRatio,ImageTags',
+            SortBy: 'IndexNumber',
+            SortOrder: 'Ascending',
+        }).then(function (result) {
+            var seasons = result.Items || [];
+            seasonCache[seriesId] = seasons;
+            renderSeasonsGrid(panel, seasons, seriesId);
+        }).catch(function () {
+            panel.innerHTML = '<p style="opacity:0.5;font-size:0.85em">Failed to load seasons.</p>';
+        });
+    }
+
+    // ── Series card ───────────────────────────────────────────────────────────
+    function createSeriesCard(series) {
+        var isDisabled = disabledSeriesIds.has(series.Id);
+
+        var card = document.createElement('div');
+        card.className = 'skipme-series-card';
+
+        // ── Header row ────────────────────────────────────────────────────────
+        var header = document.createElement('div');
+        header.className = 'skipme-series-header';
+        header.setAttribute('role', 'button');
+        header.setAttribute('aria-expanded', 'false');
+
+        // Poster image
+        var imgSrc = itemImageUrl(series, 96);
+        var posterEl;
+        if (imgSrc) {
+            posterEl = document.createElement('img');
+            posterEl.className = 'skipme-series-poster';
+            posterEl.alt = '';
+            posterEl.loading = 'lazy';
+            posterEl.decoding = 'async';
+            posterEl.src = imgSrc;
+            posterEl.onerror = function () {
+                posterEl.style.visibility = 'hidden';
+            };
+        } else {
+            posterEl = document.createElement('div');
+            posterEl.className = 'skipme-series-poster-placeholder';
+            posterEl.setAttribute('aria-hidden', 'true');
+            posterEl.textContent = '📺';
+        }
+
+        // Series name + hint text
+        var info = document.createElement('div');
+        info.className = 'skipme-series-info';
+
+        var nameEl = document.createElement('div');
+        nameEl.className = 'skipme-series-name';
+        nameEl.textContent = series.Name || 'Unknown Series';
+
+        var hint = document.createElement('div');
+        hint.className = 'skipme-series-hint' + (isDisabled ? ' is-off' : '');
+        hint.textContent = isDisabled
+            ? 'Segments disabled for all episodes'
+            : 'Expand to manage individual seasons';
+
+        info.appendChild(nameEl);
+        info.appendChild(hint);
+
+        // Controls: chevron + toggle
+        var controls = document.createElement('div');
+        controls.className = 'skipme-series-controls';
+
+        var chevron = createChevron();
+
+        var tog = createToggle(
+            'skipme-series-' + series.Id,
+            !isDisabled,
+            function (enabled) {
+                if (enabled) {
+                    disabledSeriesIds.delete(series.Id);
+                    hint.textContent = 'Expand to manage individual seasons';
+                    hint.className = 'skipme-series-hint';
+                } else {
+                    disabledSeriesIds.add(series.Id);
+                    hint.textContent = 'Segments disabled for all episodes';
+                    hint.className = 'skipme-series-hint is-off';
+                }
+
+                // Refresh seasons panel if it is currently open so overlays update.
+                if (card.classList.contains('is-expanded')) {
+                    var panel = card.querySelector('.skipme-seasons-panel');
+                    if (panel && seasonCache[series.Id]) {
+                        renderSeasonsGrid(panel, seasonCache[series.Id], series.Id);
+                    }
+                }
+            },
+            isDisabled
+                ? 'Series disabled – click to enable'
+                : 'Series enabled – click to disable'
+        );
+
+        controls.appendChild(chevron);
+        controls.appendChild(tog.element);
+
+        header.appendChild(posterEl);
+        header.appendChild(info);
+        header.appendChild(controls);
+
+        // ── Seasons panel ─────────────────────────────────────────────────────
+        var seasonsPanel = document.createElement('div');
+        seasonsPanel.className = 'skipme-seasons-panel';
+
+        // ── Expand / collapse ─────────────────────────────────────────────────
+        header.addEventListener('click', function () {
+            var expanded = card.classList.toggle('is-expanded');
+            header.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+
+            if (expanded && !seasonsPanel.dataset.loaded) {
+                seasonsPanel.dataset.loaded = 'true';
+                loadAndRenderSeasons(seasonsPanel, series.Id);
+            }
+        });
+
+        card.appendChild(header);
+        card.appendChild(seasonsPanel);
+
+        return card;
+    }
+
+    // ── Series list rendering ─────────────────────────────────────────────────
+    function renderSeriesList() {
+        var list = el('skipme-series-list');
+        list.innerHTML = '';
+
+        var filtered = filterQuery
+            ? allSeries.filter(function (s) {
+                return (s.Name || '').toLowerCase().indexOf(filterQuery) !== -1;
+            })
+            : allSeries;
+
+        if (!filtered.length) {
+            hide('skipme-series-container');
+            show('skipme-empty');
+            return;
+        }
+
+        hide('skipme-empty');
+        show('skipme-series-container');
+
+        var frag = document.createDocumentFragment();
+        for (var i = 0; i < filtered.length; i++) {
+            frag.appendChild(createSeriesCard(filtered[i]));
+        }
+        list.appendChild(frag);
+    }
+
+    // ── Initialisation ────────────────────────────────────────────────────────
+    function init() {
+        show('skipme-loading');
+        hide('skipme-error');
+        hide('skipme-empty');
+        hide('skipme-series-container');
+
+        var userId = ApiClient.getCurrentUserId();
+
+        Promise.all([
+            ApiClient.getPluginConfiguration(PLUGIN_ID),
+            ApiClient.getItems(userId, {
+                IncludeItemTypes: 'Series',
+                Recursive: true,
+                Fields: 'PrimaryImageAspectRatio,ImageTags',
+                SortBy: 'SortName',
+                SortOrder: 'Ascending',
+                Limit: 1000,
+            }),
+        ]).then(function (results) {
+            var config = results[0];
+            var seriesResult = results[1];
+
+            disabledSeriesIds = new Set(config.DisabledSeriesIds || []);
+            disabledSeasonIds = new Set(config.DisabledSeasonIds || []);
+
+            allSeries = seriesResult.Items || [];
+            filterQuery = '';
+            el('skipme-search').value = '';
+
+            renderSeriesList();
+        }).catch(function (err) {
+            console.error('[SkipMe.db] Failed to initialise settings page:', err);
+            show('skipme-error');
+        }).finally(function () {
+            hide('skipme-loading');
+        });
+    }
+
+    // ── Save ──────────────────────────────────────────────────────────────────
+    function save() {
+        var btn = el('skipme-save-btn');
+        btn.disabled = true;
+        setStatus('Saving…', '');
+
+        ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
+            config.DisabledSeriesIds = Array.from(disabledSeriesIds);
+            config.DisabledSeasonIds = Array.from(disabledSeasonIds);
+            return ApiClient.updatePluginConfiguration(PLUGIN_ID, config);
+        }).then(function () {
+            setStatus('Settings saved.', 'ok');
+        }).catch(function (err) {
+            console.error('[SkipMe.db] Failed to save settings:', err);
+            setStatus('Failed to save — please try again.', 'err');
+        }).finally(function () {
+            btn.disabled = false;
+        });
+    }
+
+    // ── Wire up events ────────────────────────────────────────────────────────
+    var eventsWired = false;
+
+    function wireEvents() {
+        if (eventsWired) { return; }
+        eventsWired = true;
+
+        el('skipme-search').addEventListener('input', function (e) {
+            filterQuery = e.target.value.trim().toLowerCase();
+            renderSeriesList();
+        });
+
+        el('skipme-save-btn').addEventListener('click', save);
+    }
+
+    // ── Page lifecycle ────────────────────────────────────────────────────────
+    var pageContainer = el('SkipMeSettingsPage');
+    if (pageContainer) {
+        pageContainer.addEventListener('pageshow', function () {
+            wireEvents();
+            init();
+        });
+    }
+}());
+</script>
+
+</body>
+</html>

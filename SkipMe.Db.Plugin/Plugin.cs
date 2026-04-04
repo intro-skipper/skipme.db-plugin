@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Library;
@@ -16,7 +17,7 @@ namespace SkipMe.Db.Plugin;
 /// Retrieves crowd-sourced intro/credits/recap/preview segment timestamps
 /// from db.skipme.workers.dev and exposes them via the Jellyfin media segments API.
 /// </summary>
-public class Plugin : BasePlugin<PluginConfiguration>
+public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -52,4 +53,17 @@ public class Plugin : BasePlugin<PluginConfiguration>
     /// Gets the library manager used to resolve items by ID.
     /// </summary>
     public ILibraryManager LibraryManager { get; }
+
+    /// <inheritdoc/>
+    public IEnumerable<PluginPageInfo> GetPages()
+    {
+        return
+        [
+            new PluginPageInfo
+            {
+                Name = Name,
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
+            },
+        ];
+    }
 }

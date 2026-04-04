@@ -9,6 +9,7 @@ using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model;
 using MediaBrowser.Model.MediaSegments;
@@ -37,16 +38,19 @@ public class SegmentProvider : IMediaSegmentProvider
     };
 
     private readonly SegmentStore _segmentStore;
+    private readonly ILibraryManager _libraryManager;
     private readonly ILogger<SegmentProvider> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
     /// </summary>
     /// <param name="segmentStore">The local segment store.</param>
+    /// <param name="libraryManager">The Jellyfin library manager, used to resolve items for per-series/season checks.</param>
     /// <param name="logger">The logger.</param>
-    public SegmentProvider(SegmentStore segmentStore, ILogger<SegmentProvider> logger)
+    public SegmentProvider(SegmentStore segmentStore, ILibraryManager libraryManager, ILogger<SegmentProvider> logger)
     {
         _segmentStore = segmentStore;
+        _libraryManager = libraryManager;
         _logger = logger;
     }
 
@@ -62,6 +66,14 @@ public class SegmentProvider : IMediaSegmentProvider
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        if (IsItemDisabled(request.ItemId))
+        {
+            _logger.LogDebug(
+                "Segments suppressed for item {ItemId} — series or season is disabled in configuration",
+                request.ItemId);
+            return Task.FromResult<IReadOnlyList<MediaSegmentDto>>([]);
+        }
 
         var storedSegments = _segmentStore.GetSegments(request.ItemId);
         if (storedSegments is null)
@@ -97,5 +109,44 @@ public class SegmentProvider : IMediaSegmentProvider
         }
 
         return segments;
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when the item's series or season has been disabled in the plugin configuration,
+    /// meaning no segments should be surfaced for it regardless of what is stored locally.
+    /// </summary>
+    /// <param name="itemId">The Jellyfin item ID to check.</param>
+    private bool IsItemDisabled(Guid itemId)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null)
+        {
+            return false;
+        }
+
+        // Fast path: nothing is disabled — avoid any library lookup.
+        if (config.DisabledSeriesIds.Count == 0 && config.DisabledSeasonIds.Count == 0)
+        {
+            return false;
+        }
+
+        if (_libraryManager.GetItemById(itemId) is not Episode episode)
+        {
+            return false;
+        }
+
+        // Series-level check.
+        if (episode.Series is { } series && config.DisabledSeriesIds.Contains(series.Id))
+        {
+            return true;
+        }
+
+        // Season-level check (ParentId is the season's item ID for an episode).
+        if (episode.ParentId != Guid.Empty && config.DisabledSeasonIds.Contains(episode.ParentId))
+        {
+            return true;
+        }
+
+        return false;
     }
 }

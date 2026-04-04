@@ -125,7 +125,7 @@ jobs:
             gh release create "${{ env.RELEASE_TAG }}" "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" --title "${{ env.RELEASE_TAG }}" --generate-notes --target "${{ github.event.repository.default_branch }}" ${PRERELEASE_FLAG}
           fi
 
-      - name: Commit updated build.yaml
+      - name: Commit updated Directory.Build.props
         if: ${{ inputs.prerelease != true }}
         shell: bash
         run: |

@@ -35,8 +35,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Configuration/configPage.html" />
-    <EmbeddedResource Include="Configuration/index.js" />
-    <EmbeddedResource Include="Configuration/index.css" />
+    <EmbeddedResource Include="Configuration/skipme-index.js" />
+    <EmbeddedResource Include="Configuration/skipme-index.css" />
   </ItemGroup>
 
   <ItemGroup>

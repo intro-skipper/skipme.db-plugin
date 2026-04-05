@@ -13,21 +13,21 @@ namespace SkipMe.Db.Plugin.Configuration;
 public class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>
-    /// Gets or sets the set of Jellyfin series item IDs for which crowd-sourced segments are disabled.
+    /// Gets the set of Jellyfin series item IDs for which crowd-sourced segments are disabled.
     /// When a series ID is present, no segments will be surfaced for any episode in that series.
     /// </summary>
-    public Collection<Guid> DisabledSeriesIds { get; set; } = [];
+    public Collection<Guid> DisabledSeriesIds { get; } = [];
 
     /// <summary>
-    /// Gets or sets the set of Jellyfin season item IDs for which crowd-sourced segments are disabled.
+    /// Gets the set of Jellyfin season item IDs for which crowd-sourced segments are disabled.
     /// When a season ID is present, no segments will be surfaced for any episode in that season,
     /// unless the containing series is already disabled.
     /// </summary>
-    public Collection<Guid> DisabledSeasonIds { get; set; } = [];
+    public Collection<Guid> DisabledSeasonIds { get; } = [];
 
     /// <summary>
-    /// Gets or sets the set of Jellyfin movie item IDs for which crowd-sourced segments are disabled.
+    /// Gets the set of Jellyfin movie item IDs for which crowd-sourced segments are disabled.
     /// When a movie ID is present, no segments will be surfaced for that movie.
     /// </summary>
-    public Collection<Guid> DisabledMovieIds { get; set; } = [];
+    public Collection<Guid> DisabledMovieIds { get; } = [];
 }

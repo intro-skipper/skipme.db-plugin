@@ -100,10 +100,6 @@ jobs:
         run: npm ci
         working-directory: web
 
-      - name: Build web assets
-        run: npm run build
-        working-directory: web
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:

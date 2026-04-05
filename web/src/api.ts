@@ -67,6 +67,22 @@ export async function fetchSeasons(seriesId: string): Promise<BaseItem[]> {
   return data.Items ?? [];
 }
 
+export async function fetchMovies(): Promise<{ items: BaseItem[]; total: number }> {
+  const userId = await getCurrentUserId();
+  const params = new URLSearchParams({
+    IncludeItemTypes: "Movie",
+    Recursive: "true",
+    Fields: "ImageTags",
+    SortBy: "SortName",
+    SortOrder: "Ascending",
+    UserId: userId,
+  });
+  const res = await fetchWithAuth(`Items?${params.toString()}`);
+  if (!res.ok) throw new Error(`Failed to fetch movies (HTTP ${res.status})`);
+  const data = (await res.json()) as ItemQueryResult;
+  return { items: data.Items ?? [], total: data.TotalRecordCount ?? 0 };
+}
+
 // ── Image URLs ─────────────────────────────────────────────────────────────────
 /**
  * Returns a Jellyfin image URL for the given item ID.

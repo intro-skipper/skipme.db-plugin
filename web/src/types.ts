@@ -2,6 +2,7 @@
 export interface PluginConfig {
   DisabledSeriesIds: string[];
   DisabledSeasonIds: string[];
+  DisabledMovieIds: string[];
 }
 
 // ── Jellyfin item shapes ───────────────────────────────────────────────────────

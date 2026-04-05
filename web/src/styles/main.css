@@ -315,3 +315,81 @@
 
 .skipme-status.ok  { color: #4caf50; }
 .skipme-status.err { color: #f44336; }
+
+/* ── Section headings ────────────────────── */
+.skipme-section {
+    margin-bottom: 2em;
+}
+
+.skipme-section-title {
+    font-size: 1em;
+    font-weight: 600;
+    margin: 1.2em 0 0.6em;
+    opacity: 0.8;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* ── Movie grid ──────────────────────────── */
+.skipme-movies-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+    gap: 10px;
+    margin: 0.4em 0;
+}
+
+/* ── Movie card ──────────────────────────── */
+.skipme-movie-card {
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.15s, opacity 0.2s;
+}
+
+.skipme-movie-card:hover {
+    border-color: rgba(255, 255, 255, 0.16);
+}
+
+.skipme-movie-poster-wrap {
+    position: relative;
+    aspect-ratio: 2 / 3;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.skipme-movie-poster {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.skipme-movie-no-image {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2em;
+}
+
+.skipme-movie-footer {
+    padding: 6px 8px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+}
+
+.skipme-movie-name {
+    font-size: 0.74em;
+    text-align: center;
+    opacity: 0.9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
+}

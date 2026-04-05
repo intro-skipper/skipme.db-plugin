@@ -1,7 +1,7 @@
 import "./styles/main.css";
 
 import type { BaseItem } from "./types.ts";
-import { fetchSeasons, fetchSeries, getImageUrl, loadConfig, saveConfig } from "./api.ts";
+import { fetchMovies, fetchSeasons, fetchSeries, getImageUrl, loadConfig, saveConfig } from "./api.ts";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const ROOT_SELECTOR = "#skipme-root";
@@ -10,10 +10,14 @@ const OBSERVER_TIMEOUT_MS = 30_000;
 // ── Page-level mutable state (reset on every mount) ───────────────────────────
 let disabledSeriesIds = new Set<string>();
 let disabledSeasonIds = new Set<string>();
+let disabledMovieIds = new Set<string>();
 let allSeries: BaseItem[] = [];
+let allMovies: BaseItem[] = [];
 let filterQuery = "";
+let movieFilterQuery = "";
 const seasonCache = new Map<string, BaseItem[]>();
 let searchDebounce = 0;
+let movieSearchDebounce = 0;
 let initRunning = false;
 let eventsWired = false;
 
@@ -347,6 +351,102 @@ function createSeriesCard(series: BaseItem): HTMLElement {
   return card;
 }
 
+// ── Movie card ─────────────────────────────────────────────────────────────────
+function createMovieCard(movie: BaseItem): HTMLElement {
+  const isDisabled = disabledMovieIds.has(movie.Id);
+
+  const card = document.createElement("div");
+  card.className = "skipme-movie-card";
+  if (isDisabled) card.style.opacity = "0.6";
+
+  // Poster
+  const posterWrap = document.createElement("div");
+  posterWrap.className = "skipme-movie-poster-wrap";
+
+  if (movie.ImageTags?.["Primary"]) {
+    const img = document.createElement("img");
+    img.className = "skipme-movie-poster";
+    img.alt = "";
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.src = getImageUrl(movie.Id, 200);
+    img.onerror = () => {
+      img.style.display = "none";
+      const ph = document.createElement("div");
+      ph.className = "skipme-movie-no-image";
+      ph.textContent = "🎬";
+      posterWrap.insertBefore(ph, posterWrap.firstChild);
+    };
+    posterWrap.appendChild(img);
+  } else {
+    const ph = document.createElement("div");
+    ph.className = "skipme-movie-no-image";
+    ph.textContent = "🎬";
+    posterWrap.appendChild(ph);
+  }
+
+  card.appendChild(posterWrap);
+
+  // Footer: name + toggle
+  const footer = document.createElement("div");
+  footer.className = "skipme-movie-footer";
+
+  const nameEl = document.createElement("div");
+  nameEl.className = "skipme-movie-name";
+  const displayName = movie.Name ?? "Unknown Movie";
+  nameEl.textContent = displayName;
+  nameEl.title = displayName;
+
+  const tog = createToggle(
+    "skipme-movie-" + movie.Id,
+    !isDisabled,
+    (enabled) => {
+      if (enabled) {
+        disabledMovieIds.delete(movie.Id);
+        card.style.opacity = "";
+      } else {
+        disabledMovieIds.add(movie.Id);
+        card.style.opacity = "0.6";
+      }
+    },
+    isDisabled ? "Movie disabled – click to enable" : "Movie enabled – click to disable",
+  );
+
+  footer.appendChild(nameEl);
+  footer.appendChild(tog.element);
+  card.appendChild(footer);
+
+  return card;
+}
+
+// ── Movie grid ─────────────────────────────────────────────────────────────────
+function renderMovieList(): void {
+  const list = byId("skipme-movie-list");
+  if (!list) return;
+  list.innerHTML = "";
+
+  const q = movieFilterQuery;
+  const filtered = q
+    ? allMovies.filter((m) => (m.Name ?? "").toLowerCase().includes(q))
+    : allMovies;
+
+  if (!filtered.length) {
+    hide("skipme-movie-container");
+    show("skipme-movie-empty");
+    return;
+  }
+
+  hide("skipme-movie-empty");
+  show("skipme-movie-container");
+
+  const grid = document.createElement("div");
+  grid.className = "skipme-movies-grid";
+  for (const m of filtered) {
+    grid.appendChild(createMovieCard(m));
+  }
+  list.appendChild(grid);
+}
+
 // ── Series list ────────────────────────────────────────────────────────────────
 function renderSeriesList(): void {
   const list = byId("skipme-series-list");
@@ -382,29 +482,43 @@ function init(): void {
   hide("skipme-error");
   hide("skipme-empty");
   hide("skipme-series-container");
+  hide("skipme-movie-empty");
+  hide("skipme-movie-container");
 
   // Wrap in Promise.resolve() so any synchronous throw (e.g. ApiClient method
   // not yet available) becomes a caught rejection and the finally always runs.
   Promise.resolve()
     .then(async () => {
-      const [config, { items, total }] = await Promise.all([loadConfig(), fetchSeries()]);
+      const [config, seriesResult, movieResult] = await Promise.all([
+        loadConfig(),
+        fetchSeries(),
+        fetchMovies(),
+      ]);
+      const { items: seriesItems, total: seriesTotal } = seriesResult;
+      const { items: movieItems, total: movieTotal } = movieResult;
 
       disabledSeriesIds = new Set(config.DisabledSeriesIds ?? []);
       disabledSeasonIds = new Set(config.DisabledSeasonIds ?? []);
-      allSeries = items;
+      disabledMovieIds = new Set(config.DisabledMovieIds ?? []);
+      allSeries = seriesItems;
+      allMovies = movieItems;
       filterQuery = "";
+      movieFilterQuery = "";
 
       const searchEl = byId<HTMLInputElement>("skipme-search");
       if (searchEl) searchEl.value = "";
 
+      const movieSearchEl = byId<HTMLInputElement>("skipme-movie-search");
+      if (movieSearchEl) movieSearchEl.value = "";
+
       const noteEl = byId("skipme-truncation-note");
       if (noteEl) {
-        if (total > items.length) {
+        if (seriesTotal > seriesItems.length) {
           noteEl.textContent =
             "Your library contains " +
-            total +
+            seriesTotal +
             " series but only " +
-            items.length +
+            seriesItems.length +
             " could be loaded. Use the search bar to find hidden series.";
           noteEl.style.display = "";
         } else {
@@ -412,7 +526,23 @@ function init(): void {
         }
       }
 
+      const movieNoteEl = byId("skipme-movie-truncation-note");
+      if (movieNoteEl) {
+        if (movieTotal > movieItems.length) {
+          movieNoteEl.textContent =
+            "Your library contains " +
+            movieTotal +
+            " movies but only " +
+            movieItems.length +
+            " could be loaded. Use the search bar to find hidden movies.";
+          movieNoteEl.style.display = "";
+        } else {
+          movieNoteEl.style.display = "none";
+        }
+      }
+
       renderSeriesList();
+      renderMovieList();
     })
     .catch((err: unknown) => {
       console.error("[SkipMe.db] Failed to initialise settings page:", err);
@@ -435,6 +565,7 @@ function save(): void {
     .then((config) => {
       config.DisabledSeriesIds = Array.from(disabledSeriesIds);
       config.DisabledSeasonIds = Array.from(disabledSeasonIds);
+      config.DisabledMovieIds = Array.from(disabledMovieIds);
       return saveConfig(config);
     })
     .then(() => setStatus("Settings saved.", "ok"))
@@ -452,20 +583,12 @@ function buildPageHTML(): string {
   return `
     <div class="content-primary">
       <div class="sectionTitleContainer sectionTitleContainer-cards">
-        <h2 class="sectionTitle">SkipMe.db – Series &amp; Season Settings</h2>
+        <h2 class="sectionTitle">SkipMe.db – Settings</h2>
       </div>
       <p class="fieldDescription">
-        Toggle crowd-sourced segment data on or off for individual series or seasons.
+        Toggle crowd-sourced segment data on or off for individual series, seasons, or movies.
         Segments remain in the local database but will not be surfaced to Jellyfin when disabled.
       </p>
-
-      <div class="verticalSection">
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="skipme-search">Filter series</label>
-          <input id="skipme-search" type="search" is="emby-input" class="emby-input"
-                 autocomplete="off" placeholder="Start typing a series name…" />
-        </div>
-      </div>
 
       <div id="skipme-loading" class="skipme-loading">
         <div class="skipme-spinner"></div>
@@ -476,13 +599,46 @@ function buildPageHTML(): string {
         <p>⚠ Failed to load library data. Please refresh the page.</p>
       </div>
 
-      <div id="skipme-empty" class="skipme-message" style="display:none">
-        <p>No TV series found in your library.</p>
+      <div class="skipme-section">
+        <h3 class="skipme-section-title">TV Series &amp; Seasons</h3>
+
+        <div class="verticalSection">
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="skipme-search">Filter series</label>
+            <input id="skipme-search" type="search" is="emby-input" class="emby-input"
+                   autocomplete="off" placeholder="Start typing a series name…" />
+          </div>
+        </div>
+
+        <div id="skipme-empty" class="skipme-message" style="display:none">
+          <p>No TV series found in your library.</p>
+        </div>
+
+        <div id="skipme-series-container" style="display:none">
+          <p id="skipme-truncation-note" class="skipme-truncation-note" style="display:none"></p>
+          <div id="skipme-series-list"></div>
+        </div>
       </div>
 
-      <div id="skipme-series-container" style="display:none">
-        <p id="skipme-truncation-note" class="skipme-truncation-note" style="display:none"></p>
-        <div id="skipme-series-list"></div>
+      <div class="skipme-section">
+        <h3 class="skipme-section-title">Movies</h3>
+
+        <div class="verticalSection">
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="skipme-movie-search">Filter movies</label>
+            <input id="skipme-movie-search" type="search" is="emby-input" class="emby-input"
+                   autocomplete="off" placeholder="Start typing a movie name…" />
+          </div>
+        </div>
+
+        <div id="skipme-movie-empty" class="skipme-message" style="display:none">
+          <p>No movies found in your library.</p>
+        </div>
+
+        <div id="skipme-movie-container" style="display:none">
+          <p id="skipme-movie-truncation-note" class="skipme-truncation-note" style="display:none"></p>
+          <div id="skipme-movie-list"></div>
+        </div>
       </div>
 
       <div class="skipme-footer">
@@ -498,8 +654,9 @@ function wireEvents(): void {
   if (eventsWired) return;
 
   const searchEl = byId<HTMLInputElement>("skipme-search");
+  const movieSearchEl = byId<HTMLInputElement>("skipme-movie-search");
   const saveBtn = byId<HTMLButtonElement>("skipme-save-btn");
-  if (!searchEl || !saveBtn) return;
+  if (!searchEl || !movieSearchEl || !saveBtn) return;
 
   eventsWired = true;
 
@@ -509,6 +666,15 @@ function wireEvents(): void {
     searchDebounce = window.setTimeout(() => {
       filterQuery = query;
       renderSeriesList();
+    }, 150);
+  });
+
+  movieSearchEl.addEventListener("input", (e) => {
+    window.clearTimeout(movieSearchDebounce);
+    const query = (e.target as HTMLInputElement).value.trim().toLowerCase();
+    movieSearchDebounce = window.setTimeout(() => {
+      movieFilterQuery = query;
+      renderMovieList();
     }, 150);
   });
 
@@ -527,8 +693,11 @@ function mountPage(rootEl: HTMLElement): void {
   initRunning = false;
   disabledSeriesIds = new Set();
   disabledSeasonIds = new Set();
+  disabledMovieIds = new Set();
   allSeries = [];
+  allMovies = [];
   filterQuery = "";
+  movieFilterQuery = "";
   seasonCache.clear();
 
   rootEl.innerHTML = buildPageHTML();
@@ -537,6 +706,7 @@ function mountPage(rootEl: HTMLElement): void {
 
   destroyPage = () => {
     window.clearTimeout(searchDebounce);
+    window.clearTimeout(movieSearchDebounce);
   };
 }
 

@@ -112,8 +112,10 @@ public class SegmentProvider : IMediaSegmentProvider
     }
 
     /// <summary>
-    /// Returns <c>true</c> when the item's series or season has been disabled in the plugin configuration,
+    /// Returns <c>true</c> when the item has been disabled in the plugin configuration,
     /// meaning no segments should be surfaced for it regardless of what is stored locally.
+    /// For episodes, the check cascades up to the season and series level.
+    /// For movies, the check is against the movie ID directly.
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID to check.</param>
     private bool IsItemDisabled(Guid itemId)
@@ -125,12 +127,19 @@ public class SegmentProvider : IMediaSegmentProvider
         }
 
         // Fast path: nothing is disabled — avoid any library lookup.
-        if (config.DisabledSeriesIds.Count == 0 && config.DisabledSeasonIds.Count == 0)
+        if (config.DisabledSeriesIds.Count == 0 && config.DisabledSeasonIds.Count == 0 && config.DisabledMovieIds.Count == 0)
         {
             return false;
         }
 
-        if (_libraryManager.GetItemById(itemId) is not Episode episode)
+        var item = _libraryManager.GetItemById(itemId);
+
+        if (item is Movie)
+        {
+            return config.DisabledMovieIds.Contains(itemId);
+        }
+
+        if (item is not Episode episode)
         {
             return false;
         }

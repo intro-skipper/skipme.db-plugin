@@ -24,4 +24,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// unless the containing series is already disabled.
     /// </summary>
     public Collection<Guid> DisabledSeasonIds { get; } = [];
+
+    /// <summary>
+    /// Gets the set of Jellyfin movie item IDs for which crowd-sourced segments are disabled.
+    /// When a movie ID is present, no segments will be surfaced for that movie.
+    /// </summary>
+    public Collection<Guid> DisabledMovieIds { get; } = [];
 }

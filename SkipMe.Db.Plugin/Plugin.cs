@@ -66,13 +66,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             },
             new PluginPageInfo
             {
-                Name = "index.js",
-                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.index.js",
+                Name = "skipme-index.js",
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.skipme-index.js",
             },
             new PluginPageInfo
             {
-                Name = "index.css",
-                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.index.css",
+                Name = "skipme-index.css",
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.skipme-index.css",
             },
         ];
     }

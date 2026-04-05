@@ -30,4 +30,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// When a movie ID is present, no segments will be surfaced for that movie.
     /// </summary>
     public Collection<Guid> DisabledMovieIds { get; } = [];
+
+    /// <summary>
+    /// Gets the set of Jellyfin season item IDs for season 0 (Specials) that have been explicitly enabled.
+    /// Specials seasons are disabled by default; a season ID must be present here for its segments to be surfaced.
+    /// </summary>
+    public Collection<Guid> EnabledSpecialsSeasonIds { get; } = [];
 }

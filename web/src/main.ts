@@ -11,6 +11,7 @@ const OBSERVER_TIMEOUT_MS = 30_000;
 let disabledSeriesIds = new Set<string>();
 let disabledSeasonIds = new Set<string>();
 let disabledMovieIds = new Set<string>();
+let enabledSpecialsSeasonIds = new Set<string>();
 let allSeries: BaseItem[] = [];
 let allMovies: BaseItem[] = [];
 let filterQuery = "";
@@ -112,7 +113,10 @@ function createChevron(): SVGSVGElement {
 // ── Season card ────────────────────────────────────────────────────────────────
 function createSeasonCard(season: BaseItem, seriesId: string): HTMLElement {
   const seriesDisabled = disabledSeriesIds.has(seriesId);
-  const seasonDisabled = disabledSeasonIds.has(season.Id);
+  const isSpecials = season.IndexNumber === 0;
+  const seasonDisabled = isSpecials
+    ? !enabledSpecialsSeasonIds.has(season.Id)
+    : disabledSeasonIds.has(season.Id);
 
   const card = document.createElement("div");
   card.className = "skipme-season-card";
@@ -167,13 +171,20 @@ function createSeasonCard(season: BaseItem, seriesId: string): HTMLElement {
     "skipme-season-" + season.Id,
     !seasonDisabled,
     (enabled) => {
-      if (enabled) {
-        disabledSeasonIds.delete(season.Id);
-        card.style.opacity = "";
+      if (isSpecials) {
+        if (enabled) {
+          enabledSpecialsSeasonIds.add(season.Id);
+        } else {
+          enabledSpecialsSeasonIds.delete(season.Id);
+        }
       } else {
-        disabledSeasonIds.add(season.Id);
-        card.style.opacity = "0.6";
+        if (enabled) {
+          disabledSeasonIds.delete(season.Id);
+        } else {
+          disabledSeasonIds.add(season.Id);
+        }
       }
+      card.style.opacity = enabled ? "" : "0.6";
     },
     seasonDisabled ? "Season disabled – click to enable" : "Season enabled – click to disable",
   );
@@ -202,9 +213,17 @@ function renderSeasonsGrid(panel: HTMLElement, seasons: BaseItem[], seriesId: st
     return;
   }
 
+  // Sort so specials (IndexNumber === 0) appear last.
+  const sorted = [...seasons].sort((a, b) => {
+    const aIsSpecials = a.IndexNumber === 0;
+    const bIsSpecials = b.IndexNumber === 0;
+    if (aIsSpecials !== bIsSpecials) return aIsSpecials ? 1 : -1;
+    return (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0);
+  });
+
   const grid = document.createElement("div");
   grid.className = "skipme-seasons-grid";
-  for (const season of seasons) {
+  for (const season of sorted) {
     grid.appendChild(createSeasonCard(season, seriesId));
   }
   panel.appendChild(grid);
@@ -500,6 +519,7 @@ function init(): void {
       disabledSeriesIds = new Set(config.DisabledSeriesIds ?? []);
       disabledSeasonIds = new Set(config.DisabledSeasonIds ?? []);
       disabledMovieIds = new Set(config.DisabledMovieIds ?? []);
+      enabledSpecialsSeasonIds = new Set(config.EnabledSpecialsSeasonIds ?? []);
       allSeries = seriesItems;
       allMovies = movieItems;
       filterQuery = "";
@@ -566,6 +586,7 @@ function save(): void {
       config.DisabledSeriesIds = Array.from(disabledSeriesIds);
       config.DisabledSeasonIds = Array.from(disabledSeasonIds);
       config.DisabledMovieIds = Array.from(disabledMovieIds);
+      config.EnabledSpecialsSeasonIds = Array.from(enabledSpecialsSeasonIds);
       return saveConfig(config);
     })
     .then(() => setStatus("Settings saved.", "ok"))
@@ -694,6 +715,7 @@ function mountPage(rootEl: HTMLElement): void {
   disabledSeriesIds = new Set();
   disabledSeasonIds = new Set();
   disabledMovieIds = new Set();
+  enabledSpecialsSeasonIds = new Set();
   allSeries = [];
   allMovies = [];
   filterQuery = "";

@@ -115,6 +115,7 @@ public class SegmentProvider : IMediaSegmentProvider
     /// Returns <c>true</c> when the item has been disabled in the plugin configuration,
     /// meaning no segments should be surfaced for it regardless of what is stored locally.
     /// For episodes, the check cascades up to the season and series level.
+    /// Specials (season 0) are disabled by default unless explicitly enabled via <see cref="Configuration.PluginConfiguration.EnabledSpecialsSeasonIds"/>.
     /// For movies, the check is against the movie ID directly.
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID to check.</param>
@@ -122,12 +123,6 @@ public class SegmentProvider : IMediaSegmentProvider
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null)
-        {
-            return false;
-        }
-
-        // Fast path: nothing is disabled — avoid any library lookup.
-        if (config.DisabledSeriesIds.Count == 0 && config.DisabledSeasonIds.Count == 0 && config.DisabledMovieIds.Count == 0)
         {
             return false;
         }
@@ -146,6 +141,14 @@ public class SegmentProvider : IMediaSegmentProvider
 
         // Series-level check.
         if (episode.Series is { } series && config.DisabledSeriesIds.Contains(series.Id))
+        {
+            return true;
+        }
+
+        // Specials (season 0) are disabled by default unless the season has been explicitly enabled.
+        if (episode.ParentIndexNumber == 0
+            && episode.ParentId != Guid.Empty
+            && !config.EnabledSpecialsSeasonIds.Contains(episode.ParentId))
         {
             return true;
         }

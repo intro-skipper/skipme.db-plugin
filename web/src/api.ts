@@ -1,4 +1,4 @@
-import type { BaseItem, ItemQueryResult, PluginConfig } from "./types.ts";
+import type { BaseItem, ItemQueryResult, LibraryView, PluginConfig } from "./types.ts";
 
 const PLUGIN_ID = "b2a63e62-0ac5-4575-9ad2-2c7534ccb83d";
 
@@ -81,6 +81,14 @@ export async function fetchMovies(): Promise<{ items: BaseItem[]; total: number 
   if (!res.ok) throw new Error(`Failed to fetch movies (HTTP ${res.status})`);
   const data = (await res.json()) as ItemQueryResult;
   return { items: data.Items ?? [], total: data.TotalRecordCount ?? 0 };
+}
+
+export async function fetchLibraries(): Promise<LibraryView[]> {
+  const userId = await getCurrentUserId();
+  const res = await fetchWithAuth(`Users/${encodeURIComponent(userId)}/Views`);
+  if (!res.ok) throw new Error(`Failed to fetch libraries (HTTP ${res.status})`);
+  const data = (await res.json()) as { Items?: LibraryView[] | null };
+  return data.Items ?? [];
 }
 
 // ── Image URLs ─────────────────────────────────────────────────────────────────

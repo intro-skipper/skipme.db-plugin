@@ -3,6 +3,7 @@ export interface PluginConfig {
   DisabledSeriesIds: string[];
   DisabledSeasonIds: string[];
   DisabledMovieIds: string[];
+  EnabledSpecialsSeasonIds: string[];
 }
 
 // ── Jellyfin item shapes ───────────────────────────────────────────────────────
@@ -10,7 +11,14 @@ export interface BaseItem {
   Id: string;
   Name?: string | null;
   IndexNumber?: number | null;
+  ParentId?: string | null;
   ImageTags?: Record<string, string> | null;
+}
+
+export interface LibraryView {
+  Id: string;
+  Name?: string | null;
+  CollectionType?: string | null;
 }
 
 export interface ItemQueryResult {

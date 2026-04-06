@@ -7,5 +7,6 @@
 ## Submitting segments to the database
 
 - Open Segment Editor and select a series / movie
-- Select the desired segment to submit
+    - For shows, select the desired season & episode 
+- Hover over the segment you would like to submit
 - Click the share button and await confirmation

@@ -53,6 +53,23 @@ export async function fetchSeries(): Promise<{ items: BaseItem[]; total: number 
   return { items: data.Items ?? [], total: data.TotalRecordCount ?? 0 };
 }
 
+export async function fetchSeriesForLibrary(libraryId: string): Promise<{ items: BaseItem[]; total: number }> {
+  const userId = await getCurrentUserId();
+  const params = new URLSearchParams({
+    ParentId: libraryId,
+    IncludeItemTypes: "Series",
+    Recursive: "true",
+    Fields: "ImageTags",
+    SortBy: "SortName",
+    SortOrder: "Ascending",
+    UserId: userId,
+  });
+  const res = await fetchWithAuth(`Items?${params.toString()}`);
+  if (!res.ok) throw new Error(`Failed to fetch series for library (HTTP ${res.status})`);
+  const data = (await res.json()) as ItemQueryResult;
+  return { items: data.Items ?? [], total: data.TotalRecordCount ?? 0 };
+}
+
 export async function fetchSeasons(seriesId: string): Promise<BaseItem[]> {
   const params = new URLSearchParams({
     ParentId: seriesId,
@@ -79,6 +96,23 @@ export async function fetchMovies(): Promise<{ items: BaseItem[]; total: number 
   });
   const res = await fetchWithAuth(`Items?${params.toString()}`);
   if (!res.ok) throw new Error(`Failed to fetch movies (HTTP ${res.status})`);
+  const data = (await res.json()) as ItemQueryResult;
+  return { items: data.Items ?? [], total: data.TotalRecordCount ?? 0 };
+}
+
+export async function fetchMoviesForLibrary(libraryId: string): Promise<{ items: BaseItem[]; total: number }> {
+  const userId = await getCurrentUserId();
+  const params = new URLSearchParams({
+    ParentId: libraryId,
+    IncludeItemTypes: "Movie",
+    Recursive: "true",
+    Fields: "ImageTags",
+    SortBy: "SortName",
+    SortOrder: "Ascending",
+    UserId: userId,
+  });
+  const res = await fetchWithAuth(`Items?${params.toString()}`);
+  if (!res.ok) throw new Error(`Failed to fetch movies for library (HTTP ${res.status})`);
   const data = (await res.json()) as ItemQueryResult;
   return { items: data.Items ?? [], total: data.TotalRecordCount ?? 0 };
 }

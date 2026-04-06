@@ -137,7 +137,7 @@ jobs:
           fi
 
       - name: Print MD5 Hash
-        run: md5sum filename.txt | awk '{ print $1 }'
+        run: md5sum SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip | awk '{ print $1 }'
 
       - name: Commit updated Directory.Build.props
         if: ${{ inputs.prerelease != true }}

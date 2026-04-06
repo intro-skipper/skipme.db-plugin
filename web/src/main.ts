@@ -1,7 +1,7 @@
 import "./styles/main.css";
 
 import type { BaseItem, LibraryView } from "./types.ts";
-import { fetchLibraries, fetchMovies, fetchSeasons, fetchSeries, getImageUrl, loadConfig, saveConfig } from "./api.ts";
+import { fetchLibraries, fetchMoviesForLibrary, fetchSeriesForLibrary, fetchSeasons, getImageUrl, loadConfig, saveConfig } from "./api.ts";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const ROOT_SELECTOR = "#skipme-root";
@@ -14,6 +14,8 @@ interface UnifiedSection {
   collectionType: string | null;
   seriesItems: BaseItem[];
   movieItems: BaseItem[];
+  seriesTotalCount: number;
+  moviesTotalCount: number;
 }
 
 // ── Page-level mutable state (reset on every mount) ───────────────────────────
@@ -517,14 +519,10 @@ function init(): void {
   // not yet available) becomes a caught rejection and the finally always runs.
   Promise.resolve()
     .then(async () => {
-      const [config, libraries, seriesResult, movieResult] = await Promise.all([
+      const [config, libraries] = await Promise.all([
         loadConfig(),
         fetchLibraries().catch(() => [] as LibraryView[]),
-        fetchSeries(),
-        fetchMovies(),
       ]);
-      const { items: seriesItems, total: seriesTotal } = seriesResult;
-      const { items: movieItems, total: movieTotal } = movieResult;
 
       disabledSeriesIds = new Set(config.DisabledSeriesIds ?? []);
       disabledSeasonIds = new Set(config.DisabledSeasonIds ?? []);
@@ -535,61 +533,46 @@ function init(): void {
       const searchEl = byId<HTMLInputElement>("skipme-search");
       if (searchEl) searchEl.value = "";
 
-      // ── Group items by their parent library ──────────────────────────────────
-      // For top-level Series/Movie items Jellyfin sets ParentId to the library
-      // view ID, so we can match them against the views returned by /Users/.../Views.
-      // Items whose ParentId does not match any known library (e.g. in sub-folders)
-      // are collected into a fallback section at the end.
+      // ── Fetch items per library ──────────────────────────────────────────────
+      // Passing ParentId=<lib.Id> to the Items query ensures Jellyfin resolves
+      // the virtual view ID correctly, avoiding the mismatch that occurs when
+      // trying to match item.ParentId against view IDs after a global fetch.
+      const sectionPromises = libraries.map(async (lib) => {
+        const ct = lib.CollectionType ?? null;
+        let seriesItems: BaseItem[] = [];
+        let seriesTotalCount = 0;
+        let movieItems: BaseItem[] = [];
+        let moviesTotalCount = 0;
 
-      const seriesByParent = new Map<string, BaseItem[]>();
-      for (const s of seriesItems) {
-        const pid = s.ParentId ?? "__unknown__";
-        const arr = seriesByParent.get(pid);
-        if (arr) arr.push(s);
-        else seriesByParent.set(pid, [s]);
-      }
-
-      const moviesByParent = new Map<string, BaseItem[]>();
-      for (const m of movieItems) {
-        const pid = m.ParentId ?? "__unknown__";
-        const arr = moviesByParent.get(pid);
-        if (arr) arr.push(m);
-        else moviesByParent.set(pid, [m]);
-      }
-
-      // Build unified sections from the known libraries, then sort:
-      // tvshows libraries first (0), movies libraries second (1), other last (2).
-      unifiedSections = [];
-      for (const lib of libraries) {
-        const seriesInLib = seriesByParent.get(lib.Id) ?? [];
-        const moviesInLib = moviesByParent.get(lib.Id) ?? [];
-        if (seriesInLib.length || moviesInLib.length) {
-          unifiedSections.push({
-            libraryId: lib.Id,
-            libraryName: lib.Name ?? "Library",
-            collectionType: lib.CollectionType ?? null,
-            seriesItems: seriesInLib,
-            movieItems: moviesInLib,
-          });
+        if (ct === "tvshows" || ct === null) {
+          const r = await fetchSeriesForLibrary(lib.Id).catch(() => ({ items: [] as BaseItem[], total: 0 }));
+          seriesItems = r.items;
+          seriesTotalCount = r.total;
         }
-        seriesByParent.delete(lib.Id);
-        moviesByParent.delete(lib.Id);
-      }
+        if (ct === "movies" || ct === null) {
+          const r = await fetchMoviesForLibrary(lib.Id).catch(() => ({ items: [] as BaseItem[], total: 0 }));
+          movieItems = r.items;
+          moviesTotalCount = r.total;
+        }
 
-      // Collect items not matched to any known library.
-      const unmatchedSeries: BaseItem[] = [];
-      for (const items of seriesByParent.values()) unmatchedSeries.push(...items);
-      const unmatchedMovies: BaseItem[] = [];
-      for (const items of moviesByParent.values()) unmatchedMovies.push(...items);
-      if (unmatchedSeries.length || unmatchedMovies.length) {
-        unifiedSections.push({
-          libraryId: "__unknown__",
-          libraryName: "Other",
-          collectionType: null,
-          seriesItems: unmatchedSeries,
-          movieItems: unmatchedMovies,
-        });
-      }
+        return { lib, seriesItems, seriesTotalCount, movieItems, moviesTotalCount };
+      });
+
+      const sectionResults = await Promise.all(sectionPromises);
+
+      // Build unified sections, skipping empty libraries.
+      // Sort: tvshows first (0), movies second (1), other last (2).
+      unifiedSections = sectionResults
+        .filter(({ seriesItems, movieItems }) => seriesItems.length > 0 || movieItems.length > 0)
+        .map(({ lib, seriesItems, seriesTotalCount, movieItems, moviesTotalCount }) => ({
+          libraryId: lib.Id,
+          libraryName: lib.Name ?? "Library",
+          collectionType: lib.CollectionType ?? null,
+          seriesItems,
+          seriesTotalCount,
+          movieItems,
+          moviesTotalCount,
+        }));
 
       unifiedSections.sort((a, b) => {
         const order = (ct: string | null): number =>
@@ -597,15 +580,15 @@ function init(): void {
         return order(a.collectionType) - order(b.collectionType);
       });
 
+      // Show a truncation note if any library returned fewer items than it has.
+      const anySeriesTruncated = unifiedSections.some((s) => s.seriesTotalCount > s.seriesItems.length);
+      const anyMoviesTruncated = unifiedSections.some((s) => s.moviesTotalCount > s.movieItems.length);
+
       const noteEl = byId("skipme-truncation-note");
       if (noteEl) {
-        if (seriesTotal > seriesItems.length) {
+        if (anySeriesTruncated) {
           noteEl.textContent =
-            "Your library contains " +
-            seriesTotal +
-            " series but only " +
-            seriesItems.length +
-            " could be loaded. Use the search bar to find hidden series.";
+            "Some TV series libraries are very large; not all series could be loaded. Use the search bar to find hidden series.";
           noteEl.style.display = "";
         } else {
           noteEl.style.display = "none";
@@ -614,13 +597,9 @@ function init(): void {
 
       const movieNoteEl = byId("skipme-movie-truncation-note");
       if (movieNoteEl) {
-        if (movieTotal > movieItems.length) {
+        if (anyMoviesTruncated) {
           movieNoteEl.textContent =
-            "Your library contains " +
-            movieTotal +
-            " movies but only " +
-            movieItems.length +
-            " could be loaded. Use the search bar to find hidden movies.";
+            "Some movie libraries are very large; not all movies could be loaded. Use the search bar to find hidden movies.";
           movieNoteEl.style.display = "";
         } else {
           movieNoteEl.style.display = "none";

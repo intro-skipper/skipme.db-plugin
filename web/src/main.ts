@@ -584,7 +584,7 @@ function init(): void {
       if (unmatchedSeries.length || unmatchedMovies.length) {
         unifiedSections.push({
           libraryId: "__unknown__",
-          libraryName: "Library",
+          libraryName: "Other",
           collectionType: null,
           seriesItems: unmatchedSeries,
           movieItems: unmatchedMovies,

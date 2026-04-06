@@ -8,10 +8,12 @@ const ROOT_SELECTOR = "#skipme-root";
 const OBSERVER_TIMEOUT_MS = 30_000;
 
 // ── Library section data ───────────────────────────────────────────────────────
-interface LibrarySection {
+interface UnifiedSection {
   libraryId: string;
   libraryName: string;
-  items: BaseItem[];
+  collectionType: string | null;
+  seriesItems: BaseItem[];
+  movieItems: BaseItem[];
 }
 
 // ── Page-level mutable state (reset on every mount) ───────────────────────────
@@ -19,13 +21,10 @@ let disabledSeriesIds = new Set<string>();
 let disabledSeasonIds = new Set<string>();
 let disabledMovieIds = new Set<string>();
 let enabledSpecialsSeasonIds = new Set<string>();
-let seriesSections: LibrarySection[] = [];
-let movieSections: LibrarySection[] = [];
+let unifiedSections: UnifiedSection[] = [];
 let filterQuery = "";
-let movieFilterQuery = "";
 const seasonCache = new Map<string, BaseItem[]>();
 let searchDebounce = 0;
-let movieSearchDebounce = 0;
 let initRunning = false;
 let eventsWired = false;
 
@@ -445,64 +444,24 @@ function createMovieCard(movie: BaseItem): HTMLElement {
   return card;
 }
 
-// ── Movie grid ─────────────────────────────────────────────────────────────────
-function renderMovieList(): void {
-  const sectionsEl = byId("skipme-movie-sections");
-  if (!sectionsEl) return;
-  sectionsEl.innerHTML = "";
-
-  const q = movieFilterQuery;
-  let hasAny = false;
-
-  for (const section of movieSections) {
-    const filtered = q
-      ? section.items.filter((m) => (m.Name ?? "").toLowerCase().includes(q))
-      : section.items;
-
-    if (!filtered.length) continue;
-    hasAny = true;
-
-    const sectionEl = document.createElement("div");
-    sectionEl.className = "skipme-library-section";
-
-    const heading = document.createElement("h4");
-    heading.className = "skipme-library-title";
-    heading.textContent = section.libraryName;
-    sectionEl.appendChild(heading);
-
-    const grid = document.createElement("div");
-    grid.className = "skipme-movies-grid";
-    for (const m of filtered) {
-      grid.appendChild(createMovieCard(m));
-    }
-    sectionEl.appendChild(grid);
-    sectionsEl.appendChild(sectionEl);
-  }
-
-  if (hasAny) {
-    hide("skipme-movie-empty");
-    show("skipme-movie-container");
-  } else {
-    hide("skipme-movie-container");
-    show("skipme-movie-empty");
-  }
-}
-
-// ── Series list ────────────────────────────────────────────────────────────────
-function renderSeriesList(): void {
-  const sectionsEl = byId("skipme-series-sections");
+// ── Unified library sections render ────────────────────────────────────────────
+function renderLibrarySections(): void {
+  const sectionsEl = byId("skipme-library-sections");
   if (!sectionsEl) return;
   sectionsEl.innerHTML = "";
 
   const q = filterQuery;
   let hasAny = false;
 
-  for (const section of seriesSections) {
-    const filtered = q
-      ? section.items.filter((s) => (s.Name ?? "").toLowerCase().includes(q))
-      : section.items;
+  for (const section of unifiedSections) {
+    const filteredSeries = q
+      ? section.seriesItems.filter((s) => (s.Name ?? "").toLowerCase().includes(q))
+      : section.seriesItems;
+    const filteredMovies = q
+      ? section.movieItems.filter((m) => (m.Name ?? "").toLowerCase().includes(q))
+      : section.movieItems;
 
-    if (!filtered.length) continue;
+    if (!filteredSeries.length && !filteredMovies.length) continue;
     hasAny = true;
 
     const sectionEl = document.createElement("div");
@@ -513,22 +472,34 @@ function renderSeriesList(): void {
     heading.textContent = section.libraryName;
     sectionEl.appendChild(heading);
 
-    const list = document.createElement("div");
-    list.className = "skipme-series-list";
-    const frag = document.createDocumentFragment();
-    for (const s of filtered) {
-      frag.appendChild(createSeriesCard(s));
+    if (filteredSeries.length) {
+      const list = document.createElement("div");
+      list.className = "skipme-series-list";
+      const frag = document.createDocumentFragment();
+      for (const s of filteredSeries) {
+        frag.appendChild(createSeriesCard(s));
+      }
+      list.appendChild(frag);
+      sectionEl.appendChild(list);
     }
-    list.appendChild(frag);
-    sectionEl.appendChild(list);
+
+    if (filteredMovies.length) {
+      const grid = document.createElement("div");
+      grid.className = "skipme-movies-grid";
+      for (const m of filteredMovies) {
+        grid.appendChild(createMovieCard(m));
+      }
+      sectionEl.appendChild(grid);
+    }
+
     sectionsEl.appendChild(sectionEl);
   }
 
   if (hasAny) {
     hide("skipme-empty");
-    show("skipme-series-container");
+    show("skipme-content-container");
   } else {
-    hide("skipme-series-container");
+    hide("skipme-content-container");
     show("skipme-empty");
   }
 }
@@ -540,9 +511,7 @@ function init(): void {
   show("skipme-loading");
   hide("skipme-error");
   hide("skipme-empty");
-  hide("skipme-series-container");
-  hide("skipme-movie-empty");
-  hide("skipme-movie-container");
+  hide("skipme-content-container");
 
   // Wrap in Promise.resolve() so any synchronous throw (e.g. ApiClient method
   // not yet available) becomes a caught rejection and the finally always runs.
@@ -562,13 +531,9 @@ function init(): void {
       disabledMovieIds = new Set(config.DisabledMovieIds ?? []);
       enabledSpecialsSeasonIds = new Set(config.EnabledSpecialsSeasonIds ?? []);
       filterQuery = "";
-      movieFilterQuery = "";
 
       const searchEl = byId<HTMLInputElement>("skipme-search");
       if (searchEl) searchEl.value = "";
-
-      const movieSearchEl = byId<HTMLInputElement>("skipme-movie-search");
-      if (movieSearchEl) movieSearchEl.value = "";
 
       // ── Group items by their parent library ──────────────────────────────────
       // For top-level Series/Movie items Jellyfin sets ParentId to the library
@@ -584,20 +549,6 @@ function init(): void {
         else seriesByParent.set(pid, [s]);
       }
 
-      seriesSections = [];
-      for (const lib of libraries) {
-        const items = seriesByParent.get(lib.Id);
-        if (items && items.length) {
-          seriesSections.push({ libraryId: lib.Id, libraryName: lib.Name ?? "Library", items });
-          seriesByParent.delete(lib.Id);
-        }
-      }
-      const unmatchedSeries: BaseItem[] = [];
-      for (const items of seriesByParent.values()) unmatchedSeries.push(...items);
-      if (unmatchedSeries.length) {
-        seriesSections.push({ libraryId: "__unknown__", libraryName: "TV Shows", items: unmatchedSeries });
-      }
-
       const moviesByParent = new Map<string, BaseItem[]>();
       for (const m of movieItems) {
         const pid = m.ParentId ?? "__unknown__";
@@ -606,19 +557,45 @@ function init(): void {
         else moviesByParent.set(pid, [m]);
       }
 
-      movieSections = [];
+      // Build unified sections from the known libraries, then sort:
+      // tvshows libraries first (0), movies libraries second (1), other last (2).
+      unifiedSections = [];
       for (const lib of libraries) {
-        const items = moviesByParent.get(lib.Id);
-        if (items && items.length) {
-          movieSections.push({ libraryId: lib.Id, libraryName: lib.Name ?? "Library", items });
-          moviesByParent.delete(lib.Id);
+        const seriesInLib = seriesByParent.get(lib.Id) ?? [];
+        const moviesInLib = moviesByParent.get(lib.Id) ?? [];
+        if (seriesInLib.length || moviesInLib.length) {
+          unifiedSections.push({
+            libraryId: lib.Id,
+            libraryName: lib.Name ?? "Library",
+            collectionType: lib.CollectionType ?? null,
+            seriesItems: seriesInLib,
+            movieItems: moviesInLib,
+          });
         }
+        seriesByParent.delete(lib.Id);
+        moviesByParent.delete(lib.Id);
       }
+
+      // Collect items not matched to any known library.
+      const unmatchedSeries: BaseItem[] = [];
+      for (const items of seriesByParent.values()) unmatchedSeries.push(...items);
       const unmatchedMovies: BaseItem[] = [];
       for (const items of moviesByParent.values()) unmatchedMovies.push(...items);
-      if (unmatchedMovies.length) {
-        movieSections.push({ libraryId: "__unknown__", libraryName: "Movies", items: unmatchedMovies });
+      if (unmatchedSeries.length || unmatchedMovies.length) {
+        unifiedSections.push({
+          libraryId: "__unknown__",
+          libraryName: "Library",
+          collectionType: null,
+          seriesItems: unmatchedSeries,
+          movieItems: unmatchedMovies,
+        });
       }
+
+      unifiedSections.sort((a, b) => {
+        const order = (ct: string | null): number =>
+          ct === "tvshows" ? 0 : ct === "movies" ? 1 : 2;
+        return order(a.collectionType) - order(b.collectionType);
+      });
 
       const noteEl = byId("skipme-truncation-note");
       if (noteEl) {
@@ -650,8 +627,7 @@ function init(): void {
         }
       }
 
-      renderSeriesList();
-      renderMovieList();
+      renderLibrarySections();
     })
     .catch((err: unknown) => {
       console.error("[SkipMe.db] Failed to initialise settings page:", err);
@@ -710,44 +686,22 @@ function buildPageHTML(): string {
       </div>
 
       <div class="skipme-section">
-        <h3 class="skipme-section-title">TV Series &amp; Seasons</h3>
-
         <div class="verticalSection">
           <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="skipme-search">Filter series</label>
+            <label class="inputLabel inputLabelUnfocused" for="skipme-search">Filter items</label>
             <input id="skipme-search" type="search" is="emby-input" class="emby-input"
-                   autocomplete="off" placeholder="Start typing a series name…" />
+                   autocomplete="off" placeholder="Start typing a name…" />
           </div>
         </div>
 
         <div id="skipme-empty" class="skipme-message" style="display:none">
-          <p>No TV series found in your library.</p>
+          <p>No content found in your library.</p>
         </div>
 
-        <div id="skipme-series-container" style="display:none">
+        <div id="skipme-content-container" style="display:none">
           <p id="skipme-truncation-note" class="skipme-truncation-note" style="display:none"></p>
-          <div id="skipme-series-sections"></div>
-        </div>
-      </div>
-
-      <div class="skipme-section">
-        <h3 class="skipme-section-title">Movies</h3>
-
-        <div class="verticalSection">
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="skipme-movie-search">Filter movies</label>
-            <input id="skipme-movie-search" type="search" is="emby-input" class="emby-input"
-                   autocomplete="off" placeholder="Start typing a movie name…" />
-          </div>
-        </div>
-
-        <div id="skipme-movie-empty" class="skipme-message" style="display:none">
-          <p>No movies found in your library.</p>
-        </div>
-
-        <div id="skipme-movie-container" style="display:none">
           <p id="skipme-movie-truncation-note" class="skipme-truncation-note" style="display:none"></p>
-          <div id="skipme-movie-sections"></div>
+          <div id="skipme-library-sections"></div>
         </div>
       </div>
 
@@ -764,9 +718,8 @@ function wireEvents(): void {
   if (eventsWired) return;
 
   const searchEl = byId<HTMLInputElement>("skipme-search");
-  const movieSearchEl = byId<HTMLInputElement>("skipme-movie-search");
   const saveBtn = byId<HTMLButtonElement>("skipme-save-btn");
-  if (!searchEl || !movieSearchEl || !saveBtn) return;
+  if (!searchEl || !saveBtn) return;
 
   eventsWired = true;
 
@@ -775,16 +728,7 @@ function wireEvents(): void {
     const query = (e.target as HTMLInputElement).value.trim().toLowerCase();
     searchDebounce = window.setTimeout(() => {
       filterQuery = query;
-      renderSeriesList();
-    }, 150);
-  });
-
-  movieSearchEl.addEventListener("input", (e) => {
-    window.clearTimeout(movieSearchDebounce);
-    const query = (e.target as HTMLInputElement).value.trim().toLowerCase();
-    movieSearchDebounce = window.setTimeout(() => {
-      movieFilterQuery = query;
-      renderMovieList();
+      renderLibrarySections();
     }, 150);
   });
 
@@ -805,10 +749,8 @@ function mountPage(rootEl: HTMLElement): void {
   disabledSeasonIds = new Set();
   disabledMovieIds = new Set();
   enabledSpecialsSeasonIds = new Set();
-  seriesSections = [];
-  movieSections = [];
+  unifiedSections = [];
   filterQuery = "";
-  movieFilterQuery = "";
   seasonCache.clear();
 
   rootEl.innerHTML = buildPageHTML();
@@ -817,7 +759,6 @@ function mountPage(rootEl: HTMLElement): void {
 
   destroyPage = () => {
     window.clearTimeout(searchDebounce);
-    window.clearTimeout(movieSearchDebounce);
   };
 }
 

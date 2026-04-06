@@ -304,14 +304,15 @@
 .skipme-footer {
     margin-top: 1.5em;
     display: flex;
-    align-items: center;
-    gap: 14px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
 }
 
 .skipme-status {
     font-size: 0.85em;
     transition: opacity 0.3s;
+    text-align: center;
 }
 
 .skipme-status.ok  { color: #4caf50; }

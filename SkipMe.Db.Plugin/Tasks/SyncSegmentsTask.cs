@@ -27,9 +27,14 @@ public class SyncSegmentsTask : IScheduledTask
     /// <summary>Maximum duration difference in milliseconds for a series segment to match a media file (±5 s).</summary>
     private const long SeriesDurationToleranceMs = 5000;
 
+    private const string MediaSegmentScanTaskKey = "TaskExtractMediaSegments";
+
+    private static readonly TaskOptions DefaultTaskOptions = new();
+
     private readonly ILibraryManager _libraryManager;
     private readonly SkipMeApiClient _apiClient;
     private readonly SegmentStore _segmentStore;
+    private readonly ITaskManager _taskManager;
     private readonly ILogger<SyncSegmentsTask> _logger;
 
     /// <summary>
@@ -38,16 +43,19 @@ public class SyncSegmentsTask : IScheduledTask
     /// <param name="libraryManager">The Jellyfin library manager.</param>
     /// <param name="apiClient">The SkipMe.db API client.</param>
     /// <param name="segmentStore">The local segment store.</param>
+    /// <param name="taskManager">The Jellyfin task manager, used to trigger the media segment scan after syncing.</param>
     /// <param name="logger">The logger.</param>
     public SyncSegmentsTask(
         ILibraryManager libraryManager,
         SkipMeApiClient apiClient,
         SegmentStore segmentStore,
+        ITaskManager taskManager,
         ILogger<SyncSegmentsTask> logger)
     {
         _libraryManager = libraryManager;
         _apiClient = apiClient;
         _segmentStore = segmentStore;
+        _taskManager = taskManager;
         _logger = logger;
     }
 
@@ -173,6 +181,25 @@ public class SyncSegmentsTask : IScheduledTask
             "SkipMe.db sync complete. Stored segments for {StoredCount} of {TotalItems} item(s).",
             newSegments.Count,
             totalItems);
+
+        TriggerMediaSegmentScan();
+    }
+
+    private void TriggerMediaSegmentScan()
+    {
+        var worker = _taskManager.ScheduledTasks
+            .FirstOrDefault(t => string.Equals(t.ScheduledTask.Key, MediaSegmentScanTaskKey, StringComparison.Ordinal));
+
+        if (worker is null)
+        {
+            _logger.LogWarning(
+                "Could not find scheduled task with key '{TaskKey}' — media segment scan will not be triggered",
+                MediaSegmentScanTaskKey);
+            return;
+        }
+
+        _logger.LogInformation("Queuing Jellyfin media segment scan ('{TaskKey}')", MediaSegmentScanTaskKey);
+        _taskManager.QueueScheduledTask(worker.ScheduledTask, DefaultTaskOptions);
     }
 
     // -------------------------------------------------------------------------

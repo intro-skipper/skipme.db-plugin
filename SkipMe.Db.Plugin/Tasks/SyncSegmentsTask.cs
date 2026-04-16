@@ -69,7 +69,7 @@ public class SyncSegmentsTask : IScheduledTask
     public string Description => "Fetches relevant crowd-sourced segment timestamps from the SkipMe.db API and stores them locally.";
 
     /// <inheritdoc/>
-    public string Category => "SkipMe.db";
+    public string Category => "Intro Skipper";
 
     /// <inheritdoc/>
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()

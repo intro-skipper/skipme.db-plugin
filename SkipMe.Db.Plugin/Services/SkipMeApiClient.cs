@@ -37,14 +37,15 @@ public class SkipMeApiClient
 
     /// <summary>
     /// Fetches all segment timestamps for a series.
-    /// At least one of <paramref name="tvdbSeriesId"/>, <paramref name="tmdbId"/>, or <paramref name="aniListId"/> must be provided.
+    /// At least one of <paramref name="tvdbSeriesId"/>, <paramref name="tmdbId"/>, <paramref name="imdbId"/>, or <paramref name="aniListId"/> must be provided.
     /// </summary>
     /// <param name="tvdbSeriesId">The TVDB series ID.</param>
     /// <param name="tmdbId">The TMDB series ID.</param>
+    /// <param name="imdbId">The IMDb series ID.</param>
     /// <param name="aniListId">The AniList series ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The series response, or <c>null</c> if not found or on error.</returns>
-    public Task<SeriesResponse?> GetBySeriesAsync(int? tvdbSeriesId, int? tmdbId, int? aniListId, CancellationToken cancellationToken)
+    public Task<SeriesResponse?> GetBySeriesAsync(int? tvdbSeriesId, int? tmdbId, string? imdbId, int? aniListId, CancellationToken cancellationToken)
     {
         var sb = new StringBuilder($"{BaseUrl}/v1/series?");
         var sep = string.Empty;
@@ -61,6 +62,12 @@ public class SkipMeApiClient
             sep = "&";
         }
 
+        if (!string.IsNullOrWhiteSpace(imdbId))
+        {
+            sb.Append(sep).Append("imdb_id=").Append(Uri.EscapeDataString(imdbId));
+            sep = "&";
+        }
+
         if (aniListId.HasValue)
         {
             sb.Append(sep).Append("anilist_id=").Append(aniListId.Value);
@@ -71,9 +78,10 @@ public class SkipMeApiClient
 
     /// <summary>
     /// Fetches segment timestamps for a single movie or episode via the <c>/v1/media</c> endpoint.
-    /// At least one of <paramref name="tmdbId"/>, <paramref name="tvdbId"/>, or <paramref name="aniListId"/> must be provided.
+    /// At least one of <paramref name="tmdbId"/>, <paramref name="imdbId"/>, <paramref name="tvdbId"/>, or <paramref name="aniListId"/> must be provided.
     /// </summary>
     /// <param name="tmdbId">The TMDB series or movie ID.</param>
+    /// <param name="imdbId">The IMDb series ID.</param>
     /// <param name="tvdbId">The TVDB series or movie ID.</param>
     /// <param name="aniListId">The AniList series ID.</param>
     /// <param name="season">Season number (required for TV when using <paramref name="aniListId"/> or <paramref name="tmdbId"/>).</param>
@@ -83,6 +91,7 @@ public class SkipMeApiClient
     /// <returns>The media response, or <c>null</c> if not found or on error.</returns>
     public Task<MediaResponse?> GetByMediaAsync(
         int? tmdbId,
+        string? imdbId,
         int? tvdbId,
         int? aniListId,
         int? season,
@@ -96,6 +105,12 @@ public class SkipMeApiClient
         if (tmdbId.HasValue)
         {
             sb.Append(sep).Append("tmdb_id=").Append(tmdbId.Value);
+            sep = "&";
+        }
+
+        if (!string.IsNullOrWhiteSpace(imdbId))
+        {
+            sb.Append(sep).Append("imdb_id=").Append(Uri.EscapeDataString(imdbId));
             sep = "&";
         }
 

@@ -228,6 +228,11 @@ public class SyncSegmentsTask : IScheduledTask
             return string.Create(CultureInfo.InvariantCulture, $"tmdb:{tmdbId}");
         }
 
+        if (series.ProviderIds.TryGetValue("Imdb", out var imdbId) && !string.IsNullOrWhiteSpace(imdbId))
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"imdb:{imdbId}");
+        }
+
         if (series.ProviderIds.TryGetValue("AniList", out var aniListId) && !string.IsNullOrEmpty(aniListId))
         {
             return string.Create(CultureInfo.InvariantCulture, $"anilist:{aniListId}");
@@ -246,6 +251,7 @@ public class SyncSegmentsTask : IScheduledTask
 
         int? tvdbSeriesId = null;
         int? tmdbId = null;
+        string? imdbId = null;
         int? aniListId = null;
 
         if (series.ProviderIds.TryGetValue("Tvdb", out var tvdbStr)
@@ -260,24 +266,30 @@ public class SyncSegmentsTask : IScheduledTask
             tmdbId = tId;
         }
 
+        if (series.ProviderIds.TryGetValue("Imdb", out var imdbStr) && !string.IsNullOrWhiteSpace(imdbStr))
+        {
+            imdbId = imdbStr;
+        }
+
         if (series.ProviderIds.TryGetValue("AniList", out var aniListStr)
             && int.TryParse(aniListStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var aId))
         {
             aniListId = aId;
         }
 
-        if (tvdbSeriesId is null && tmdbId is null && aniListId is null)
+        if (tvdbSeriesId is null && tmdbId is null && imdbId is null && aniListId is null)
         {
             return null;
         }
 
         _logger.LogDebug(
-            "Fetching series via tvdb_series_id={TvdbSeriesId}, tmdb_id={TmdbId}, anilist_id={AniListId}",
+            "Fetching series via tvdb_series_id={TvdbSeriesId}, tmdb_id={TmdbId}, imdb_id={ImdbId}, anilist_id={AniListId}",
             tvdbSeriesId,
             tmdbId,
+            imdbId,
             aniListId);
 
-        return await _apiClient.GetBySeriesAsync(tvdbSeriesId, tmdbId, aniListId, cancellationToken).ConfigureAwait(false);
+        return await _apiClient.GetBySeriesAsync(tvdbSeriesId, tmdbId, imdbId, aniListId, cancellationToken).ConfigureAwait(false);
     }
 
     // -------------------------------------------------------------------------
@@ -293,6 +305,7 @@ public class SyncSegmentsTask : IScheduledTask
     private async Task<MediaResponse?> FetchMediaDataAsync(BaseItem item, CancellationToken cancellationToken)
     {
         int? tmdbId = null;
+        string? imdbId = null;
         int? tvdbId = null;
         int? aniListId = null;
         int? seasonNum = null;
@@ -320,6 +333,11 @@ public class SyncSegmentsTask : IScheduledTask
                     && int.TryParse(tStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tId))
                 {
                     tmdbId = tId;
+                }
+
+                if (series.ProviderIds.TryGetValue("Imdb", out var iStr) && !string.IsNullOrWhiteSpace(iStr))
+                {
+                    imdbId = iStr;
                 }
 
                 if (series.ProviderIds.TryGetValue("AniList", out var aStr)
@@ -351,7 +369,7 @@ public class SyncSegmentsTask : IScheduledTask
             }
         }
 
-        if (tmdbId is null && tvdbId is null && aniListId is null)
+        if (tmdbId is null && imdbId is null && tvdbId is null && aniListId is null)
         {
             _logger.LogDebug("No supported provider ID found for item {ItemId}, skipping", item.Id);
             return null;
@@ -364,13 +382,14 @@ public class SyncSegmentsTask : IScheduledTask
         }
 
         _logger.LogDebug(
-            "Fetching media segments for item {ItemId} (tmdb={TmdbId}, tvdb={TvdbId})",
+            "Fetching media segments for item {ItemId} (tmdb={TmdbId}, imdb={ImdbId}, tvdb={TvdbId})",
             item.Id,
             tmdbId,
+            imdbId,
             tvdbId);
 
         return await _apiClient
-            .GetByMediaAsync(tmdbId, tvdbId, aniListId, seasonNum, episodeNum, durationMs.Value, cancellationToken)
+            .GetByMediaAsync(tmdbId, imdbId, tvdbId, aniListId, seasonNum, episodeNum, durationMs.Value, cancellationToken)
             .ConfigureAwait(false);
     }
 

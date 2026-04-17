@@ -277,7 +277,7 @@ public class SyncSegmentsTask : IScheduledTask
             aniListId = aId;
         }
 
-        if (tvdbSeriesId is null && tmdbId is null && string.IsNullOrWhiteSpace(imdbId) && aniListId is null)
+        if (tvdbSeriesId is null && tmdbId is null && imdbId is null && aniListId is null)
         {
             return null;
         }
@@ -369,7 +369,7 @@ public class SyncSegmentsTask : IScheduledTask
             }
         }
 
-        if (tmdbId is null && string.IsNullOrWhiteSpace(imdbId) && tvdbId is null && aniListId is null)
+        if (tmdbId is null && imdbId is null && tvdbId is null && aniListId is null)
         {
             _logger.LogDebug("No supported provider ID found for item {ItemId}, skipping", item.Id);
             return null;

@@ -228,7 +228,7 @@ public class SyncSegmentsTask : IScheduledTask
             return string.Create(CultureInfo.InvariantCulture, $"tmdb:{tmdbId}");
         }
 
-        if (series.ProviderIds.TryGetValue("Imdb", out var imdbId) && !string.IsNullOrEmpty(imdbId))
+        if (series.ProviderIds.TryGetValue("Imdb", out var imdbId) && !string.IsNullOrWhiteSpace(imdbId))
         {
             return string.Create(CultureInfo.InvariantCulture, $"imdb:{imdbId}");
         }

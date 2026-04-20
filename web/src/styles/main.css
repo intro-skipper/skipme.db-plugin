@@ -329,6 +329,10 @@
     margin-bottom: 2em;
 }
 
+.skipme-filter-controls {
+    margin-top: 1em;
+}
+
 .skipme-section-title {
     font-size: 1em;
     font-weight: 600;

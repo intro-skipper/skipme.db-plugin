@@ -8,22 +8,22 @@
         Segments remain in the local database but will not be surfaced to Jellyfin when disabled.
       </p>
 
-      <div id="skipme-loading" class="skipme-loading">
-        <div class="skipme-spinner"></div>
-        <p>Loading your library…</p>
-      </div>
-
       <div id="skipme-error" class="skipme-message skipme-error" style="display:none">
         <p>⚠ Failed to load library data. Please refresh the page.</p>
       </div>
 
       <div class="skipme-section">
-        <div class="verticalSection">
+        <div class="verticalSection skipme-filter-controls">
           <div class="inputContainer">
             <label class="inputLabel inputLabelUnfocused" for="skipme-search">Filter items</label>
             <input id="skipme-search" type="search" is="emby-input" class="emby-input"
                    autocomplete="off" placeholder="Start typing a name…" />
           </div>
+        </div>
+
+        <div id="skipme-loading" class="skipme-loading">
+          <div class="skipme-spinner"></div>
+          <p>Loading your library…</p>
         </div>
 
         <div id="skipme-empty" class="skipme-message" style="display:none">

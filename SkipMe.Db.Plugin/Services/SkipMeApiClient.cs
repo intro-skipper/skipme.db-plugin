@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
-using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -20,6 +22,7 @@ namespace SkipMe.Db.Plugin.Services;
 public class SkipMeApiClient
 {
     private const string BaseUrl = "https://db.skipme.workers.dev";
+    private const int MaxRequestBytes = 100 * 1024 * 1024;
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<SkipMeApiClient> _logger;
@@ -36,186 +39,130 @@ public class SkipMeApiClient
     }
 
     /// <summary>
-    /// Fetches all segment timestamps for a series.
-    /// At least one of <paramref name="tvdbSeriesId"/>, <paramref name="tmdbId"/>, <paramref name="imdbId"/>, or <paramref name="aniListId"/> must be provided.
+    /// Fetches segment timestamps for many movie/episode lookups via <c>POST /v1/movies</c>.
     /// </summary>
-    /// <param name="tvdbSeriesId">The TVDB series ID.</param>
-    /// <param name="tmdbId">The TMDB series ID.</param>
-    /// <param name="imdbId">The IMDb series ID.</param>
-    /// <param name="aniListId">The AniList series ID.</param>
+    /// <param name="requests">The lookup requests.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The series response, or <c>null</c> if not found or on error.</returns>
-    public Task<SeriesResponse?> GetBySeriesAsync(int? tvdbSeriesId, int? tmdbId, string? imdbId, int? aniListId, CancellationToken cancellationToken)
+    /// <returns>A response list that aligns with the request order.</returns>
+    public Task<IReadOnlyList<MediaResponse?>> GetByMoviesBatchAsync(
+        IReadOnlyList<MovieLookupRequest> requests,
+        CancellationToken cancellationToken)
     {
-        var sb = new StringBuilder($"{BaseUrl}/v1/series?");
-        var sep = string.Empty;
-
-        if (tvdbSeriesId.HasValue)
-        {
-            sb.Append(sep).Append("tvdb_series_id=").Append(tvdbSeriesId.Value);
-            sep = "&";
-        }
-
-        if (tmdbId.HasValue)
-        {
-            sb.Append(sep).Append("tmdb_id=").Append(tmdbId.Value);
-            sep = "&";
-        }
-
-        if (!string.IsNullOrWhiteSpace(imdbId))
-        {
-            sb.Append(sep).Append("imdb_id=").Append(Uri.EscapeDataString(imdbId));
-            sep = "&";
-        }
-
-        if (aniListId.HasValue)
-        {
-            sb.Append(sep).Append("anilist_id=").Append(aniListId.Value);
-        }
-
-        return FetchSeriesAsync(sb.ToString(), cancellationToken);
+        return PostBatchAsync<MovieLookupRequest, MediaResponse>("/v1/movies", requests, cancellationToken);
     }
 
     /// <summary>
-    /// Fetches segment timestamps for a single movie or episode via the <c>/v1/media</c> endpoint.
-    /// At least one of <paramref name="tmdbId"/>, <paramref name="imdbId"/>, <paramref name="tvdbId"/>, or <paramref name="aniListId"/> must be provided.
+    /// Fetches segment timestamps for many show lookups via <c>POST /v1/shows</c>.
     /// </summary>
-    /// <param name="tmdbId">The TMDB series or movie ID.</param>
-    /// <param name="imdbId">The IMDb series ID.</param>
-    /// <param name="tvdbId">The TVDB series or movie ID.</param>
-    /// <param name="aniListId">The AniList series ID.</param>
-    /// <param name="season">Season number (required for TV when using <paramref name="aniListId"/> or <paramref name="tmdbId"/>).</param>
-    /// <param name="episode">Episode number (required for TV when using <paramref name="aniListId"/> or <paramref name="tmdbId"/>).</param>
-    /// <param name="durationMs">Episode duration in milliseconds (required); used for API matching with a ±5 000 ms tolerance.</param>
+    /// <param name="requests">The lookup requests.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The media response, or <c>null</c> if not found or on error.</returns>
-    public Task<MediaResponse?> GetByMediaAsync(
-        int? tmdbId,
-        string? imdbId,
-        int? tvdbId,
-        int? aniListId,
-        int? season,
-        int? episode,
-        long durationMs,
+    /// <returns>A response list that aligns with the request order.</returns>
+    public Task<IReadOnlyList<SeriesResponse?>> GetByShowsBatchAsync(
+        IReadOnlyList<ShowLookupRequest> requests,
         CancellationToken cancellationToken)
     {
-        var sb = new StringBuilder($"{BaseUrl}/v1/media?");
-        var sep = string.Empty;
-
-        if (tmdbId.HasValue)
-        {
-            sb.Append(sep).Append("tmdb_id=").Append(tmdbId.Value);
-            sep = "&";
-        }
-
-        if (!string.IsNullOrWhiteSpace(imdbId))
-        {
-            sb.Append(sep).Append("imdb_id=").Append(Uri.EscapeDataString(imdbId));
-            sep = "&";
-        }
-
-        if (tvdbId.HasValue)
-        {
-            sb.Append(sep).Append("tvdb_id=").Append(tvdbId.Value);
-            sep = "&";
-        }
-
-        if (aniListId.HasValue)
-        {
-            sb.Append(sep).Append("anilist_id=").Append(aniListId.Value);
-            sep = "&";
-        }
-
-        if (season.HasValue)
-        {
-            sb.Append(sep).Append("season=").Append(season.Value);
-            sep = "&";
-        }
-
-        if (episode.HasValue)
-        {
-            sb.Append(sep).Append("episode=").Append(episode.Value);
-            sep = "&";
-        }
-
-        sb.Append(sep).Append("duration_ms=").Append(durationMs);
-
-        return FetchMediaAsync(sb.ToString(), cancellationToken);
+        return PostBatchAsync<ShowLookupRequest, SeriesResponse>("/v1/shows", requests, cancellationToken);
     }
 
-    private async Task<MediaResponse?> FetchMediaAsync(string url, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<TResponse?>> PostBatchAsync<TRequest, TResponse>(
+        string endpointPath,
+        IReadOnlyList<TRequest> requests,
+        CancellationToken cancellationToken)
     {
-        try
+        if (requests.Count == 0)
         {
-            var client = _httpClientFactory.CreateClient(nameof(SkipMeApiClient));
-            var response = await client.GetAsync(new Uri(url), cancellationToken).ConfigureAwait(false);
+            return [];
+        }
 
-            if (response.StatusCode == HttpStatusCode.NotFound)
-            {
-                _logger.LogDebug("No media segments found at {Url}", url);
-                return null;
-            }
+        var results = new List<TResponse?>(requests.Count);
+        var client = _httpClientFactory.CreateClient(nameof(SkipMeApiClient));
+        var url = new Uri($"{BaseUrl}{endpointPath}");
 
-            if (!response.IsSuccessStatusCode)
+        foreach (var batch in ChunkByMaxRequestSize(requests))
+        {
+            try
             {
+                using var response = await client.PostAsJsonAsync(url, batch, cancellationToken).ConfigureAwait(false);
+
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                {
+                    _logger.LogDebug("No results found from SkipMe.db API at {Url}", url);
+                    results.AddRange(Enumerable.Repeat<TResponse?>(default, batch.Count));
+                    continue;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "SkipMe.db API returned {StatusCode} for {Url}",
+                        (int)response.StatusCode,
+                        url);
+                    results.AddRange(Enumerable.Repeat<TResponse?>(default, batch.Count));
+                    continue;
+                }
+
+                var payload = await response.Content.ReadFromJsonAsync<List<TResponse?>>(cancellationToken).ConfigureAwait(false) ?? [];
+                if (payload.Count == batch.Count)
+                {
+                    results.AddRange(payload);
+                    continue;
+                }
+
                 _logger.LogWarning(
-                    "SkipMe.db API returned {StatusCode} for {Url}",
-                    (int)response.StatusCode,
-                    url);
-                return null;
-            }
+                    "SkipMe.db API response count mismatch for {Url}: expected {ExpectedCount}, got {ActualCount}",
+                    url,
+                    batch.Count,
+                    payload.Count);
 
-            return await response.Content
-                .ReadFromJsonAsync<MediaResponse>(cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
-        {
-            if (cancellationToken.IsCancellationRequested)
+                for (var i = 0; i < batch.Count; i++)
+                {
+                    results.Add(i < payload.Count ? payload[i] : default);
+                }
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
             {
-                return null;
-            }
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return results;
+                }
 
-            _logger.LogWarning(ex, "Failed to fetch media segments from SkipMe.db API at {Url}", url);
-            return null;
+                _logger.LogWarning(ex, "Failed to fetch segments from SkipMe.db API at {Url}", url);
+                results.AddRange(Enumerable.Repeat<TResponse?>(default, batch.Count));
+            }
         }
+
+        return results;
     }
 
-    private async Task<SeriesResponse?> FetchSeriesAsync(string url, CancellationToken cancellationToken)
+    private static IEnumerable<List<TRequest>> ChunkByMaxRequestSize<TRequest>(IReadOnlyList<TRequest> requests)
     {
-        try
+        var current = new List<TRequest>();
+        var currentSize = 2; // []
+
+        foreach (var request in requests)
         {
-            var client = _httpClientFactory.CreateClient(nameof(SkipMeApiClient));
-            var response = await client.GetAsync(new Uri(url), cancellationToken).ConfigureAwait(false);
-
-            if (response.StatusCode == HttpStatusCode.NotFound)
+            var itemSize = JsonSerializer.SerializeToUtf8Bytes(request).Length;
+            if (itemSize + 2 > MaxRequestBytes)
             {
-                _logger.LogDebug("No segments found at {Url}", url);
-                return null;
+                throw new InvalidOperationException("A single SkipMe.db batch item exceeds the 100MB request size limit.");
             }
 
-            if (!response.IsSuccessStatusCode)
+            var additional = itemSize + (current.Count > 0 ? 1 : 0); // item + comma
+
+            if (current.Count > 0 && currentSize + additional > MaxRequestBytes)
             {
-                _logger.LogWarning(
-                    "SkipMe.db API returned {StatusCode} for {Url}",
-                    (int)response.StatusCode,
-                    url);
-                return null;
+                yield return current;
+                current = [];
+                currentSize = 2;
             }
 
-            return await response.Content
-                .ReadFromJsonAsync<SeriesResponse>(cancellationToken)
-                .ConfigureAwait(false);
+            current.Add(request);
+            currentSize += itemSize + (current.Count > 1 ? 1 : 0);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
-        {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return null;
-            }
 
-            _logger.LogWarning(ex, "Failed to fetch segments from SkipMe.db API at {Url}", url);
-            return null;
+        if (current.Count > 0)
+        {
+            yield return current;
         }
     }
 }

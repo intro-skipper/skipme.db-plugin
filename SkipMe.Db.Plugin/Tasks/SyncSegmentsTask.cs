@@ -26,12 +26,11 @@ public class SyncSegmentsTask : IScheduledTask
 {
     /// <summary>Maximum duration difference in milliseconds for a series segment to match a media file (±5 s).</summary>
     private const long SeriesDurationToleranceMs = 5000;
+    private const string MediaSegmentScanTaskKey = "TaskExtractMediaSegments";
 
     private static readonly TimeSpan MinimumSyncInterval = TimeSpan.FromDays(1);
     private static readonly SemaphoreSlim SyncExecutionGate = new(1, 1);
     private static readonly TaskOptions DefaultTaskOptions = new();
-
-    private const string MediaSegmentScanTaskKey = "TaskExtractMediaSegments";
 
     private readonly ILibraryManager _libraryManager;
     private readonly SkipMeApiClient _apiClient;

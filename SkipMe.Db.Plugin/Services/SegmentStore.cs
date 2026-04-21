@@ -21,6 +21,8 @@ namespace SkipMe.Db.Plugin.Services;
 /// </summary>
 public sealed class SegmentStore : IDisposable
 {
+    private const string LastSuccessfulSyncUtcKey = "LastSuccessfulSyncUtc";
+
     private readonly SqliteConnection _connection;
     private readonly ILogger<SegmentStore> _logger;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
@@ -189,6 +191,61 @@ public sealed class SegmentStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Returns the timestamp of the last successful full sync, or <c>null</c> if unavailable.
+    /// </summary>
+    /// <returns>The UTC timestamp of the last successful sync, or <c>null</c>.</returns>
+    public DateTimeOffset? GetLastSuccessfulSyncUtc()
+    {
+        _semaphore.Wait();
+        try
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "SELECT Value FROM Metadata WHERE Key = @key";
+            cmd.Parameters.AddWithValue("@key", LastSuccessfulSyncUtcKey);
+            var raw = cmd.ExecuteScalar() as string;
+
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return null;
+            }
+
+            return DateTimeOffset.TryParseExact(raw, "O", null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed)
+                ? parsed
+                : null;
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Stores the timestamp of the last successful full sync in UTC.
+    /// </summary>
+    /// <param name="timestampUtc">The UTC timestamp to store.</param>
+    /// <returns>A task that completes when the value is persisted.</returns>
+    public async Task SetLastSuccessfulSyncUtcAsync(DateTimeOffset timestampUtc)
+    {
+        await _semaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO Metadata (Key, Value)
+                VALUES (@key, @value)
+                ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value
+                """;
+            cmd.Parameters.AddWithValue("@key", LastSuccessfulSyncUtcKey);
+            cmd.Parameters.AddWithValue("@value", timestampUtc.ToUniversalTime().ToString("O"));
+            await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -227,6 +284,15 @@ public sealed class SegmentStore : IDisposable
         createIndex.CommandText =
             "CREATE INDEX IF NOT EXISTS IX_Segments_ItemId ON Segments(ItemId)";
         createIndex.ExecuteNonQuery();
+
+        using var createMetadataTable = _connection.CreateCommand();
+        createMetadataTable.CommandText = """
+            CREATE TABLE IF NOT EXISTS Metadata (
+                Key   TEXT NOT NULL PRIMARY KEY,
+                Value TEXT NOT NULL
+            )
+            """;
+        createMetadataTable.ExecuteNonQuery();
 
         _logger.LogDebug("Segment database schema initialized");
     }

@@ -26,9 +26,10 @@ public class SyncSegmentsTask : IScheduledTask
 {
     /// <summary>Maximum duration difference in milliseconds for a series segment to match a media file (±5 s).</summary>
     private const long SeriesDurationToleranceMs = 5000;
-
     private const string MediaSegmentScanTaskKey = "TaskExtractMediaSegments";
 
+    private static readonly TimeSpan MinimumSyncInterval = TimeSpan.FromDays(1);
+    private static readonly SemaphoreSlim SyncExecutionGate = new(1, 1);
     private static readonly TaskOptions DefaultTaskOptions = new();
 
     private readonly ILibraryManager _libraryManager;
@@ -88,101 +89,151 @@ public class SyncSegmentsTask : IScheduledTask
     /// <inheritdoc/>
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var newSegments = new Dictionary<Guid, List<StoredSegment>>();
-
-        // Collect movies and episodes present on this Jellyfin server.
-        var movies = _libraryManager
-            .GetItemList(new InternalItemsQuery { IncludeItemTypes = [Jellyfin.Data.Enums.BaseItemKind.Movie], IsVirtualItem = false, Recursive = true })
-            .OfType<Movie>()
-            .ToList();
-
-        var allEpisodes = _libraryManager
-            .GetItemList(new InternalItemsQuery { IncludeItemTypes = [Jellyfin.Data.Enums.BaseItemKind.Episode], IsVirtualItem = false, Recursive = true })
-            .OfType<Episode>()
-            .ToList();
-
-        var totalItems = movies.Count + allEpisodes.Count;
-        var processed = 0;
-
-        _logger.LogInformation(
-            "Starting SkipMe.db sync for {MovieCount} movie(s) and {EpisodeCount} episode(s)",
-            movies.Count,
-            allEpisodes.Count);
-
-        // --- Movies: use /v1/media ---
-        foreach (var movie in movies)
+        if (!await SyncExecutionGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var segments = await FetchAndBuildMovieSegmentsAsync(movie, cancellationToken).ConfigureAwait(false);
-            if (segments.Count > 0)
-            {
-                newSegments[movie.Id] = segments;
-            }
-
-            processed++;
-            ReportProgress(progress, processed, totalItems);
+            _logger.LogInformation("SkipMe.db sync is already running; skipping overlapping run.");
+            return;
         }
 
-        // --- TV episodes: /v1/series (cached per series), fallback to /v1/media only when no series ID is available ---
-        // Cache keyed by series identity string to avoid redundant API round-trips.
-        var seriesCache = new Dictionary<string, SeriesResponse?>(StringComparer.Ordinal);
-
-        foreach (var episode in allEpisodes)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (episode.IndexNumber is { } epNum && episode.ParentIndexNumber is { } seasonNum)
+            var lastSuccessfulSync = _segmentStore.GetLastSuccessfulSyncUtc();
+            var now = DateTimeOffset.UtcNow;
+            if (lastSuccessfulSync.HasValue && (now - lastSuccessfulSync.Value) < MinimumSyncInterval)
             {
-                List<StoredSegment>? storedSegments = null;
+                _logger.LogWarning(
+                    "Skipping SkipMe.db sync: exceeding the rate limit of one run per day (last successful run at {LastRunUtc:o}).",
+                    lastSuccessfulSync.Value);
+                return;
+            }
 
-                var seriesKey = GetSeriesCacheKey(episode);
-                if (seriesKey is not null)
+            var newSegments = new Dictionary<Guid, List<StoredSegment>>();
+
+            var movies = _libraryManager
+                .GetItemList(new InternalItemsQuery { IncludeItemTypes = [Jellyfin.Data.Enums.BaseItemKind.Movie], IsVirtualItem = false, Recursive = true })
+                .OfType<Movie>()
+                .ToList();
+
+            var allEpisodes = _libraryManager
+                .GetItemList(new InternalItemsQuery { IncludeItemTypes = [Jellyfin.Data.Enums.BaseItemKind.Episode], IsVirtualItem = false, Recursive = true })
+                .OfType<Episode>()
+                .ToList();
+
+            var totalItems = movies.Count + allEpisodes.Count;
+            var processed = 0;
+            var movieLookups = new List<MovieLookupWorkItem>();
+            var showLookupMap = new Dictionary<string, ShowLookupWorkItem>(StringComparer.Ordinal);
+
+            _logger.LogInformation(
+                "Starting SkipMe.db sync for {MovieCount} movie(s) and {EpisodeCount} episode(s)",
+                movies.Count,
+                allEpisodes.Count);
+
+            foreach (var movie in movies)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var request = BuildMovieLookupRequest(movie);
+                if (request is not null)
                 {
-                    if (!seriesCache.TryGetValue(seriesKey, out var seriesResponse))
-                    {
-                        seriesResponse = await FetchSeriesDataAsync(episode, cancellationToken).ConfigureAwait(false);
-                        seriesCache[seriesKey] = seriesResponse;
-                    }
-
-                    if (seriesResponse is not null)
-                    {
-                        // Series is present in the API — use series segments only
-                        long? durationMs = episode.RunTimeTicks.HasValue
-                            ? episode.RunTimeTicks.Value / TimeSpan.TicksPerMillisecond
-                            : null;
-                        storedSegments = BuildStoredSegmentsFromSeries(seriesResponse.Segments, seasonNum, epNum, durationMs);
-                    }
-
-                    // seriesResponse is null → series IDs present on Jellyfin but series not found in the API — skip
+                    movieLookups.Add(new MovieLookupWorkItem(movie.Id, request));
                 }
-                else
+
+                processed++;
+                ReportProgress(progress, processed, totalItems);
+            }
+
+            foreach (var episode in allEpisodes)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (episode.IndexNumber is { } episodeNumber && episode.ParentIndexNumber is { } seasonNumber)
                 {
-                    // No series-level metadata key available on the Jellyfin server — use /v1/media directly
-                    var mediaResponse = await FetchMediaDataAsync(episode, cancellationToken).ConfigureAwait(false);
-                    if (mediaResponse is not null)
+                    if (TryBuildShowLookup(episode, out var showKey, out var showRequest))
                     {
-                        storedSegments = BuildStoredSegmentsFromMedia(mediaResponse);
+                        if (!showLookupMap.TryGetValue(showKey, out var showWorkItem))
+                        {
+                            showWorkItem = new ShowLookupWorkItem(showRequest);
+                            showLookupMap[showKey] = showWorkItem;
+                        }
+
+                        showWorkItem.Episodes.Add(
+                            new EpisodeSeriesWorkItem(
+                                episode.Id,
+                                seasonNumber,
+                                episodeNumber,
+                                GetDurationMs(episode)));
+                    }
+                    else
+                    {
+                        var request = BuildMovieLookupRequest(episode);
+                        if (request is not null)
+                        {
+                            movieLookups.Add(new MovieLookupWorkItem(episode.Id, request));
+                        }
                     }
                 }
 
-                if (storedSegments is { Count: > 0 })
+                processed++;
+                ReportProgress(progress, processed, totalItems);
+            }
+
+            var movieRequests = movieLookups.Select(w => w.Request).ToList();
+            var movieResponses = await _apiClient.GetByMoviesBatchAsync(movieRequests, cancellationToken).ConfigureAwait(false);
+            for (var i = 0; i < movieLookups.Count && i < movieResponses.Count; i++)
+            {
+                var response = movieResponses[i];
+                if (response is null)
                 {
-                    newSegments[episode.Id] = storedSegments;
+                    continue;
+                }
+
+                var segments = BuildStoredSegmentsFromMedia(response);
+                if (segments.Count > 0)
+                {
+                    newSegments[movieLookups[i].ItemId] = segments;
                 }
             }
 
-            processed++;
-            ReportProgress(progress, processed, totalItems);
+            var showLookups = showLookupMap.Values.ToList();
+            var showRequests = showLookups.Select(w => w.Request).ToList();
+            var showResponses = await _apiClient.GetByShowsBatchAsync(showRequests, cancellationToken).ConfigureAwait(false);
+            for (var i = 0; i < showLookups.Count && i < showResponses.Count; i++)
+            {
+                var showResponse = showResponses[i];
+                if (showResponse is null)
+                {
+                    continue;
+                }
+
+                foreach (var episode in showLookups[i].Episodes)
+                {
+                    var segments = BuildStoredSegmentsFromSeries(
+                        showResponse.Segments,
+                        episode.SeasonNumber,
+                        episode.EpisodeNumber,
+                        episode.DurationMs);
+                    if (segments.Count > 0)
+                    {
+                        newSegments[episode.ItemId] = segments;
+                    }
+                }
+            }
+
+            await _segmentStore.ReplaceAllAsync(newSegments).ConfigureAwait(false);
+            await _segmentStore.SetLastSuccessfulSyncUtcAsync(DateTimeOffset.UtcNow).ConfigureAwait(false);
+
+            _logger.LogInformation(
+                "SkipMe.db sync complete. Stored segments for {StoredCount} of {TotalItems} item(s).",
+                newSegments.Count,
+                totalItems);
+
+            TriggerMediaSegmentScan();
         }
-
-        await _segmentStore.ReplaceAllAsync(newSegments).ConfigureAwait(false);
-        _logger.LogInformation(
-            "SkipMe.db sync complete. Stored segments for {StoredCount} of {TotalItems} item(s).",
-            newSegments.Count,
-            totalItems);
-
-        TriggerMediaSegmentScan();
+        finally
+        {
+            SyncExecutionGate.Release();
+        }
     }
 
     private void TriggerMediaSegmentScan()
@@ -202,195 +253,129 @@ public class SyncSegmentsTask : IScheduledTask
         _taskManager.QueueScheduledTask(worker.ScheduledTask, DefaultTaskOptions);
     }
 
-    // -------------------------------------------------------------------------
-    // Series fetch helpers
-    // -------------------------------------------------------------------------
-
-    /// <summary>
-    /// Returns a stable string key that identifies the series for API caching purposes,
-    /// or <c>null</c> if no supported provider ID is available.
-    /// </summary>
-    private static string? GetSeriesCacheKey(Episode episode)
+    private static bool TryBuildShowLookup(Episode episode, out string key, out ShowLookupRequest request)
     {
+        key = string.Empty;
+        request = new ShowLookupRequest();
+
         var series = episode.Series;
         if (series is null)
         {
-            return null;
+            return false;
         }
 
-        if (series.ProviderIds.TryGetValue("Tvdb", out var tvdbSeriesId) && !string.IsNullOrEmpty(tvdbSeriesId))
+        var tvdbSeriesId = TryGetIntProviderId(series, "Tvdb");
+        var tmdbId = TryGetIntProviderId(series, "Tmdb");
+        var imdbSeriesId = TryGetStringProviderId(series, "Imdb");
+        var aniListId = TryGetIntProviderId(series, "AniList");
+
+        if (tvdbSeriesId is null && tmdbId is null && imdbSeriesId is null && aniListId is null)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"tvdb_series:{tvdbSeriesId}");
+            return false;
         }
 
-        if (series.ProviderIds.TryGetValue("Tmdb", out var tmdbId) && !string.IsNullOrEmpty(tmdbId))
+        if (tvdbSeriesId is not null)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"tmdb:{tmdbId}");
+            key = string.Create(CultureInfo.InvariantCulture, $"tvdb_series:{tvdbSeriesId.Value}");
         }
-
-        if (series.ProviderIds.TryGetValue("Imdb", out var imdbId) && !string.IsNullOrWhiteSpace(imdbId))
+        else if (tmdbId is not null)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"imdb:{imdbId}");
+            key = string.Create(CultureInfo.InvariantCulture, $"tmdb:{tmdbId.Value}");
         }
-
-        if (series.ProviderIds.TryGetValue("AniList", out var aniListId) && !string.IsNullOrEmpty(aniListId))
+        else if (imdbSeriesId is not null)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"anilist:{aniListId}");
-        }
-
-        return null;
-    }
-
-    private async Task<SeriesResponse?> FetchSeriesDataAsync(Episode episode, CancellationToken cancellationToken)
-    {
-        var series = episode.Series;
-        if (series is null)
-        {
-            return null;
-        }
-
-        int? tvdbSeriesId = null;
-        int? tmdbId = null;
-        string? imdbId = null;
-        int? aniListId = null;
-
-        if (series.ProviderIds.TryGetValue("Tvdb", out var tvdbStr)
-            && int.TryParse(tvdbStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tvdbId))
-        {
-            tvdbSeriesId = tvdbId;
-        }
-
-        if (series.ProviderIds.TryGetValue("Tmdb", out var tmdbStr)
-            && int.TryParse(tmdbStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tId))
-        {
-            tmdbId = tId;
-        }
-
-        if (series.ProviderIds.TryGetValue("Imdb", out var imdbStr) && !string.IsNullOrWhiteSpace(imdbStr))
-        {
-            imdbId = imdbStr;
-        }
-
-        if (series.ProviderIds.TryGetValue("AniList", out var aniListStr)
-            && int.TryParse(aniListStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var aId))
-        {
-            aniListId = aId;
-        }
-
-        if (tvdbSeriesId is null && tmdbId is null && imdbId is null && aniListId is null)
-        {
-            return null;
-        }
-
-        _logger.LogDebug(
-            "Fetching series via tvdb_series_id={TvdbSeriesId}, tmdb_id={TmdbId}, imdb_id={ImdbId}, anilist_id={AniListId}",
-            tvdbSeriesId,
-            tmdbId,
-            imdbId,
-            aniListId);
-
-        return await _apiClient.GetBySeriesAsync(tvdbSeriesId, tmdbId, imdbId, aniListId, cancellationToken).ConfigureAwait(false);
-    }
-
-    // -------------------------------------------------------------------------
-    // /v1/media fetch helpers
-    // -------------------------------------------------------------------------
-
-    private async Task<List<StoredSegment>> FetchAndBuildMovieSegmentsAsync(Movie movie, CancellationToken cancellationToken)
-    {
-        var mediaResponse = await FetchMediaDataAsync(movie, cancellationToken).ConfigureAwait(false);
-        return mediaResponse is not null ? BuildStoredSegmentsFromMedia(mediaResponse) : [];
-    }
-
-    private async Task<MediaResponse?> FetchMediaDataAsync(BaseItem item, CancellationToken cancellationToken)
-    {
-        int? tmdbId = null;
-        string? imdbId = null;
-        int? tvdbId = null;
-        int? aniListId = null;
-        int? seasonNum = null;
-        int? episodeNum = null;
-        long? durationMs = item.RunTimeTicks.HasValue
-            ? item.RunTimeTicks.Value / TimeSpan.TicksPerMillisecond
-            : null;
-
-        if (item is Episode episode)
-        {
-            var series = episode.Series;
-            seasonNum = episode.ParentIndexNumber;
-            episodeNum = episode.IndexNumber;
-
-            // tvdb_id in the /v1/media API is the episode-level TVDB ID, not the series-level one.
-            if (episode.ProviderIds.TryGetValue("Tvdb", out var vStr)
-                && int.TryParse(vStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var vId))
-            {
-                tvdbId = vId;
-            }
-
-            if (series is not null)
-            {
-                if (series.ProviderIds.TryGetValue("Tmdb", out var tStr)
-                    && int.TryParse(tStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tId))
-                {
-                    tmdbId = tId;
-                }
-
-                if (series.ProviderIds.TryGetValue("Imdb", out var iStr) && !string.IsNullOrWhiteSpace(iStr))
-                {
-                    imdbId = iStr;
-                }
-
-                if (series.ProviderIds.TryGetValue("AniList", out var aStr)
-                    && int.TryParse(aStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var aId))
-                {
-                    aniListId = aId;
-                }
-            }
+            key = string.Create(CultureInfo.InvariantCulture, $"imdb:{imdbSeriesId}");
         }
         else
         {
-            // Movie — provider IDs are on the item itself
-            if (item.ProviderIds.TryGetValue("Tmdb", out var tStr)
-                && int.TryParse(tStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tId))
-            {
-                tmdbId = tId;
-            }
-
-            if (item.ProviderIds.TryGetValue("Tvdb", out var vStr)
-                && int.TryParse(vStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var vId))
-            {
-                tvdbId = vId;
-            }
-
-            if (item.ProviderIds.TryGetValue("AniList", out var aStr)
-                && int.TryParse(aStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var aId))
-            {
-                aniListId = aId;
-            }
+            key = string.Create(CultureInfo.InvariantCulture, $"anilist:{aniListId!.Value}");
         }
 
-        if (tmdbId is null && imdbId is null && tvdbId is null && aniListId is null)
+        request = new ShowLookupRequest
+        {
+            TvdbSeriesId = tvdbSeriesId,
+            TmdbId = tmdbId,
+            ImdbSeriesId = imdbSeriesId,
+            AniListId = aniListId,
+        };
+
+        return true;
+    }
+
+    private MovieLookupRequest? BuildMovieLookupRequest(BaseItem item)
+    {
+        var durationMs = GetDurationMs(item);
+        if (durationMs is null)
+        {
+            _logger.LogDebug("Duration unknown for item {ItemId}, skipping movies endpoint", item.Id);
+            return null;
+        }
+
+        int? tmdbId;
+        int? tvdbId;
+        int? aniListId;
+        string? imdbId;
+        int? season = null;
+        int? episode = null;
+
+        if (item is Episode episodeItem)
+        {
+            tmdbId = TryGetIntProviderId(episodeItem.Series, "Tmdb");
+            tvdbId = TryGetIntProviderId(episodeItem, "Tvdb");
+            aniListId = TryGetIntProviderId(episodeItem.Series, "AniList");
+            imdbId = TryGetStringProviderId(episodeItem.Series, "Imdb");
+            season = episodeItem.ParentIndexNumber;
+            episode = episodeItem.IndexNumber;
+        }
+        else
+        {
+            tmdbId = TryGetIntProviderId(item, "Tmdb");
+            tvdbId = TryGetIntProviderId(item, "Tvdb");
+            aniListId = TryGetIntProviderId(item, "AniList");
+            imdbId = TryGetStringProviderId(item, "Imdb");
+        }
+
+        if (tmdbId is null && tvdbId is null && aniListId is null && imdbId is null)
         {
             _logger.LogDebug("No supported provider ID found for item {ItemId}, skipping", item.Id);
             return null;
         }
 
-        if (durationMs is null)
+        return new MovieLookupRequest
         {
-            _logger.LogDebug("Duration unknown for item {ItemId}, skipping media endpoint", item.Id);
-            return null;
+            TmdbId = tmdbId,
+            ImdbId = imdbId,
+            TvdbId = tvdbId,
+            AniListId = aniListId,
+            Season = season,
+            Episode = episode,
+            DurationMs = durationMs.Value,
+        };
+    }
+
+    private static int? TryGetIntProviderId(BaseItem? item, string provider)
+    {
+        if (item?.ProviderIds.TryGetValue(provider, out var raw) == true
+            && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+        {
+            return parsed;
         }
 
-        _logger.LogDebug(
-            "Fetching media segments for item {ItemId} (tmdb={TmdbId}, imdb={ImdbId}, tvdb={TvdbId})",
-            item.Id,
-            tmdbId,
-            imdbId,
-            tvdbId);
+        return null;
+    }
 
-        return await _apiClient
-            .GetByMediaAsync(tmdbId, imdbId, tvdbId, aniListId, seasonNum, episodeNum, durationMs.Value, cancellationToken)
-            .ConfigureAwait(false);
+    private static string? TryGetStringProviderId(BaseItem? item, string provider)
+    {
+        return item?.ProviderIds.TryGetValue(provider, out var raw) == true && !string.IsNullOrWhiteSpace(raw)
+            ? raw
+            : null;
+    }
+
+    private static long? GetDurationMs(BaseItem item)
+    {
+        return item.RunTimeTicks.HasValue
+            ? item.RunTimeTicks.Value / TimeSpan.TicksPerMillisecond
+            : null;
     }
 
     // -------------------------------------------------------------------------
@@ -483,4 +468,20 @@ public class SyncSegmentsTask : IScheduledTask
             progress.Report(100.0 * processed / total);
         }
     }
+
+    private sealed record MovieLookupWorkItem(Guid ItemId, MovieLookupRequest Request);
+
+    private sealed class ShowLookupWorkItem
+    {
+        public ShowLookupWorkItem(ShowLookupRequest request)
+        {
+            Request = request;
+        }
+
+        public ShowLookupRequest Request { get; }
+
+        public List<EpisodeSeriesWorkItem> Episodes { get; } = [];
+    }
+
+    private sealed record EpisodeSeriesWorkItem(Guid ItemId, int SeasonNumber, int EpisodeNumber, long? DurationMs);
 }

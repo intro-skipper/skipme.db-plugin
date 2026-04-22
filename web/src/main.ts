@@ -1,11 +1,13 @@
 import "./styles/main.css";
 
-import type { BaseItem, LibraryView } from "./types.ts";
-import { fetchLibraries, fetchMoviesForLibrary, fetchSeriesForLibrary, fetchSeasons, getImageUrl, loadConfig, saveConfig } from "./api.ts";
+import type { BaseItem, LibraryView, VirtualFolderInfo } from "./types.ts";
+import { fetchLibraries, fetchMoviesForLibrary, fetchSeriesForLibrary, fetchSeasons, fetchVirtualFolders, getImageUrl, loadConfig, saveConfig } from "./api.ts";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const ROOT_SELECTOR = "#skipme-root";
 const OBSERVER_TIMEOUT_MS = 30_000;
+const SKIPME_PROVIDER_NAME = "skipme.db";
+const SKIPME_PROVIDER_ID = "4dbabcc18d37fdc81c1dd513a47b70cb";
 
 // ── Library section data ───────────────────────────────────────────────────────
 interface UnifiedSection {
@@ -506,6 +508,28 @@ function renderLibrarySections(): void {
   }
 }
 
+function isSkipMeEnabledForLibrary(
+  library: LibraryView,
+  virtualFoldersById: Map<string, VirtualFolderInfo>,
+  virtualFoldersByName: Map<string, VirtualFolderInfo>,
+): boolean {
+  const byId = virtualFoldersById.get(library.Id);
+  const byName = virtualFoldersByName.get((library.Name ?? "").toLowerCase());
+  const folder = byId ?? byName;
+
+  if (!folder) {
+    return true;
+  }
+
+  const disabledProviders = new Set(
+    (folder.LibraryOptions?.DisabledMediaSegmentProviders ?? [])
+      .map((p) => p?.toLowerCase())
+      .filter((p): p is string => !!p),
+  );
+
+  return !disabledProviders.has(SKIPME_PROVIDER_ID) && !disabledProviders.has(SKIPME_PROVIDER_NAME);
+}
+
 // ── Initialisation ─────────────────────────────────────────────────────────────
 function init(): void {
   if (initRunning) return;
@@ -519,9 +543,10 @@ function init(): void {
   // not yet available) becomes a caught rejection and the finally always runs.
   Promise.resolve()
     .then(async () => {
-      const [config, libraries] = await Promise.all([
+      const [config, libraries, virtualFolders] = await Promise.all([
         loadConfig(),
         fetchLibraries().catch(() => [] as LibraryView[]),
+        fetchVirtualFolders().catch(() => [] as VirtualFolderInfo[]),
       ]);
 
       disabledSeriesIds = new Set(config.DisabledSeriesIds ?? []);
@@ -533,11 +558,28 @@ function init(): void {
       const searchEl = byId<HTMLInputElement>("skipme-search");
       if (searchEl) searchEl.value = "";
 
+      const virtualFoldersById = new Map<string, VirtualFolderInfo>();
+      const virtualFoldersByName = new Map<string, VirtualFolderInfo>();
+      for (const folder of virtualFolders) {
+        const itemId = folder.ItemId;
+        if (itemId) {
+          virtualFoldersById.set(itemId, folder);
+        }
+
+        const name = (folder.Name ?? "").toLowerCase();
+        if (name) {
+          virtualFoldersByName.set(name, folder);
+        }
+      }
+
+      const enabledLibraries = libraries.filter((lib) =>
+        isSkipMeEnabledForLibrary(lib, virtualFoldersById, virtualFoldersByName));
+
       // ── Fetch items per library ──────────────────────────────────────────────
       // Passing ParentId=<lib.Id> to the Items query ensures Jellyfin resolves
       // the virtual view ID correctly, avoiding the mismatch that occurs when
       // trying to match item.ParentId against view IDs after a global fetch.
-      const sectionPromises = libraries.map(async (lib) => {
+      const sectionPromises = enabledLibraries.map(async (lib) => {
         const ct = lib.CollectionType ?? null;
         let seriesItems: BaseItem[] = [];
         let seriesTotalCount = 0;

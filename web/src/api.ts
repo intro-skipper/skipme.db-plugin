@@ -1,4 +1,4 @@
-import type { BaseItem, ItemQueryResult, LibraryView, PluginConfig } from "./types.ts";
+import type { BaseItem, ItemQueryResult, LibraryView, PluginConfig, VirtualFolderInfo } from "./types.ts";
 
 const PLUGIN_ID = "b2a63e62-0ac5-4575-9ad2-2c7534ccb83d";
 
@@ -123,6 +123,13 @@ export async function fetchLibraries(): Promise<LibraryView[]> {
   if (!res.ok) throw new Error(`Failed to fetch libraries (HTTP ${res.status})`);
   const data = (await res.json()) as { Items?: LibraryView[] | null };
   return data.Items ?? [];
+}
+
+export async function fetchVirtualFolders(): Promise<VirtualFolderInfo[]> {
+  const res = await fetchWithAuth("Library/VirtualFolders");
+  if (!res.ok) throw new Error(`Failed to fetch virtual folders (HTTP ${res.status})`);
+  const data = (await res.json()) as VirtualFolderInfo[] | null;
+  return data ?? [];
 }
 
 // ── Image URLs ─────────────────────────────────────────────────────────────────

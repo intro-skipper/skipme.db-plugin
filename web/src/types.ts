@@ -21,6 +21,16 @@ export interface LibraryView {
   CollectionType?: string | null;
 }
 
+export interface LibraryOptions {
+  DisabledMediaSegmentProviders?: string[] | null;
+}
+
+export interface VirtualFolderInfo {
+  ItemId?: string | null;
+  Name?: string | null;
+  LibraryOptions?: LibraryOptions | null;
+}
+
 export interface ItemQueryResult {
   Items?: BaseItem[] | null;
   TotalRecordCount?: number | null;

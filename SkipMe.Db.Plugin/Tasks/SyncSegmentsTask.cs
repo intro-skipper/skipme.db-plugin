@@ -153,16 +153,16 @@ public class SyncSegmentsTask : IScheduledTask
                     {
                         if (!showLookupMap.TryGetValue(showKey, out var showWorkItem))
                         {
-                            showWorkItem = new ShowLookupWorkItem(showRequest);
+                            showWorkItem = new ShowLookupWorkItem(showRequest, episode.Series?.Id ?? Guid.Empty);
                             showLookupMap[showKey] = showWorkItem;
                         }
 
-                        showWorkItem.Episodes.Add(
-                            new EpisodeSeriesWorkItem(
-                                episode.Id,
-                                seasonNumber,
-                                episodeNumber,
-                                GetDurationMs(episode)));
+                        showWorkItem.AddEpisode(
+                            episode.Id,
+                            episode.ParentId,
+                            seasonNumber,
+                            episodeNumber,
+                            GetDurationMs(episode));
                     }
                     else
                     {
@@ -253,21 +253,18 @@ public class SyncSegmentsTask : IScheduledTask
         _taskManager.QueueScheduledTask(worker.ScheduledTask, DefaultTaskOptions);
     }
 
-    private static bool TryBuildShowLookup(Episode episode, out string key, out ShowLookupRequest request)
+    // Instance method because it resolves season context via _libraryManager through GetEpisodeProviderIds().
+    private bool TryBuildShowLookup(Episode episode, out string key, out ShowLookupRequest request)
     {
         key = string.Empty;
         request = new ShowLookupRequest();
 
-        var series = episode.Series;
-        if (series is null)
-        {
-            return false;
-        }
-
-        var tvdbSeriesId = TryGetIntProviderId(series, "Tvdb");
-        var tmdbId = TryGetIntProviderId(series, "Tmdb");
-        var imdbSeriesId = TryGetStringProviderId(series, "Imdb");
-        var aniListId = TryGetIntProviderId(series, "AniList");
+        var providerIds = GetEpisodeProviderIds(episode);
+        var lookupContext = GetEpisodeLookupContext(episode, providerIds);
+        var tvdbSeriesId = lookupContext.TvdbSeriesId;
+        var tmdbId = lookupContext.TmdbId;
+        var imdbSeriesId = lookupContext.ImdbSeriesId;
+        var aniListId = providerIds.Series.AniListId;
 
         if (tvdbSeriesId is null && tmdbId is null && imdbSeriesId is null && aniListId is null)
         {
@@ -320,12 +317,16 @@ public class SyncSegmentsTask : IScheduledTask
 
         if (item is Episode episodeItem)
         {
-            tmdbId = TryGetIntProviderId(episodeItem.Series, "Tmdb");
-            tvdbId = TryGetIntProviderId(episodeItem, "Tvdb");
-            aniListId = TryGetIntProviderId(episodeItem.Series, "AniList");
-            imdbId = TryGetStringProviderId(episodeItem.Series, "Imdb");
-            season = episodeItem.ParentIndexNumber;
-            episode = episodeItem.IndexNumber;
+            var providerIds = GetEpisodeProviderIds(episodeItem);
+            var lookupContext = GetEpisodeLookupContext(episodeItem, providerIds);
+            tmdbId = providerIds.Episode.TmdbId ?? lookupContext.TmdbId;
+            // Movies endpoint accepts a single TVDB identifier for episodes; prefer episode ID first,
+            // then fall back to season/series IDs when episode-level IDs are unavailable.
+            tvdbId = providerIds.Episode.TvdbId ?? lookupContext.TvdbSeasonId ?? lookupContext.TvdbSeriesId;
+            aniListId = providerIds.Episode.AniListId ?? providerIds.Season.AniListId ?? providerIds.Series.AniListId;
+            imdbId = lookupContext.ImdbSeriesId ?? providerIds.Season.ImdbId ?? providerIds.Episode.ImdbId;
+            season = lookupContext.SeasonNumber;
+            episode = lookupContext.EpisodeNumber;
         }
         else
         {
@@ -461,6 +462,45 @@ public class SyncSegmentsTask : IScheduledTask
         });
     }
 
+    private EpisodeProviderIds GetEpisodeProviderIds(Episode episode)
+    {
+        Season? season = null;
+        if (episode.ParentId != Guid.Empty)
+        {
+            season = _libraryManager.GetItemById<Season>(episode.ParentId);
+        }
+
+        var series = episode.Series;
+
+        return new EpisodeProviderIds(
+            new ProviderIds(
+                TryGetIntProviderId(episode, "Tvdb"),
+                TryGetIntProviderId(episode, "Tmdb"),
+                TryGetStringProviderId(episode, "Imdb"),
+                TryGetIntProviderId(episode, "AniList")),
+            new ProviderIds(
+                TryGetIntProviderId(season, "Tvdb"),
+                TryGetIntProviderId(season, "Tmdb"),
+                TryGetStringProviderId(season, "Imdb"),
+                TryGetIntProviderId(season, "AniList")),
+            new ProviderIds(
+                TryGetIntProviderId(series, "Tvdb"),
+                TryGetIntProviderId(series, "Tmdb"),
+                TryGetStringProviderId(series, "Imdb"),
+                TryGetIntProviderId(series, "AniList")));
+    }
+
+    private static EpisodeLookupContext GetEpisodeLookupContext(Episode episode, EpisodeProviderIds providerIds)
+    {
+        return new EpisodeLookupContext(
+            providerIds.Season.TvdbId,
+            providerIds.Series.TvdbId,
+            providerIds.Series.ImdbId,
+            providerIds.Series.TmdbId,
+            episode.ParentIndexNumber,
+            episode.IndexNumber);
+    }
+
     private static void ReportProgress(IProgress<double> progress, int processed, int total)
     {
         if (total > 0)
@@ -473,15 +513,53 @@ public class SyncSegmentsTask : IScheduledTask
 
     private sealed class ShowLookupWorkItem
     {
-        public ShowLookupWorkItem(ShowLookupRequest request)
+        public ShowLookupWorkItem(ShowLookupRequest request, Guid seriesId)
         {
             Request = request;
+            SeriesId = seriesId;
         }
 
         public ShowLookupRequest Request { get; }
 
+        public Guid SeriesId { get; }
+
         public List<EpisodeSeriesWorkItem> Episodes { get; } = [];
+
+        public List<Guid> AllEpisodeIds { get; } = [];
+
+        public Dictionary<Guid, List<Guid>> EpisodeIdsBySeasonId { get; } = [];
+
+        public void AddEpisode(Guid episodeId, Guid seasonId, int seasonNumber, int episodeNumber, long? durationMs)
+        {
+            Episodes.Add(new EpisodeSeriesWorkItem(episodeId, seasonNumber, episodeNumber, durationMs));
+            AllEpisodeIds.Add(episodeId);
+
+            if (seasonId == Guid.Empty)
+            {
+                return;
+            }
+
+            if (!EpisodeIdsBySeasonId.TryGetValue(seasonId, out var ids))
+            {
+                ids = [];
+                EpisodeIdsBySeasonId[seasonId] = ids;
+            }
+
+            ids.Add(episodeId);
+        }
     }
 
     private sealed record EpisodeSeriesWorkItem(Guid ItemId, int SeasonNumber, int EpisodeNumber, long? DurationMs);
+
+    private sealed record ProviderIds(int? TvdbId, int? TmdbId, string? ImdbId, int? AniListId);
+
+    private sealed record EpisodeProviderIds(ProviderIds Episode, ProviderIds Season, ProviderIds Series);
+
+    private sealed record EpisodeLookupContext(
+        int? TvdbSeasonId,
+        int? TvdbSeriesId,
+        string? ImdbSeriesId,
+        int? TmdbId,
+        int? SeasonNumber,
+        int? EpisodeNumber);
 }

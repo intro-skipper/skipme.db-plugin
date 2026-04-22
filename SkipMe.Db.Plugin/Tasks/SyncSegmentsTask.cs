@@ -153,16 +153,16 @@ public class SyncSegmentsTask : IScheduledTask
                     {
                         if (!showLookupMap.TryGetValue(showKey, out var showWorkItem))
                         {
-                            showWorkItem = new ShowLookupWorkItem(showRequest);
+                            showWorkItem = new ShowLookupWorkItem(showRequest, episode.Series?.Id ?? Guid.Empty);
                             showLookupMap[showKey] = showWorkItem;
                         }
 
-                        showWorkItem.Episodes.Add(
-                            new EpisodeSeriesWorkItem(
-                                episode.Id,
-                                seasonNumber,
-                                episodeNumber,
-                                GetDurationMs(episode)));
+                        showWorkItem.AddEpisode(
+                            episode.Id,
+                            episode.ParentId,
+                            seasonNumber,
+                            episodeNumber,
+                            GetDurationMs(episode));
                     }
                     else
                     {
@@ -513,14 +513,40 @@ public class SyncSegmentsTask : IScheduledTask
 
     private sealed class ShowLookupWorkItem
     {
-        public ShowLookupWorkItem(ShowLookupRequest request)
+        public ShowLookupWorkItem(ShowLookupRequest request, Guid seriesId)
         {
             Request = request;
+            SeriesId = seriesId;
         }
 
         public ShowLookupRequest Request { get; }
 
+        public Guid SeriesId { get; }
+
         public List<EpisodeSeriesWorkItem> Episodes { get; } = [];
+
+        public List<Guid> AllEpisodeIds { get; } = [];
+
+        public Dictionary<Guid, List<Guid>> EpisodeIdsBySeasonId { get; } = [];
+
+        public void AddEpisode(Guid episodeId, Guid seasonId, int seasonNumber, int episodeNumber, long? durationMs)
+        {
+            Episodes.Add(new EpisodeSeriesWorkItem(episodeId, seasonNumber, episodeNumber, durationMs));
+            AllEpisodeIds.Add(episodeId);
+
+            if (seasonId == Guid.Empty)
+            {
+                return;
+            }
+
+            if (!EpisodeIdsBySeasonId.TryGetValue(seasonId, out var ids))
+            {
+                ids = [];
+                EpisodeIdsBySeasonId[seasonId] = ids;
+            }
+
+            ids.Add(episodeId);
+        }
     }
 
     private sealed record EpisodeSeriesWorkItem(Guid ItemId, int SeasonNumber, int EpisodeNumber, long? DurationMs);

@@ -253,21 +253,16 @@ public class SyncSegmentsTask : IScheduledTask
         _taskManager.QueueScheduledTask(worker.ScheduledTask, DefaultTaskOptions);
     }
 
-    private static bool TryBuildShowLookup(Episode episode, out string key, out ShowLookupRequest request)
+    private bool TryBuildShowLookup(Episode episode, out string key, out ShowLookupRequest request)
     {
         key = string.Empty;
         request = new ShowLookupRequest();
 
-        var series = episode.Series;
-        if (series is null)
-        {
-            return false;
-        }
-
-        var tvdbSeriesId = TryGetIntProviderId(series, "Tvdb");
-        var tmdbId = TryGetIntProviderId(series, "Tmdb");
-        var imdbSeriesId = TryGetStringProviderId(series, "Imdb");
-        var aniListId = TryGetIntProviderId(series, "AniList");
+        var providerIds = GetEpisodeProviderIds(episode);
+        var tvdbSeriesId = providerIds.Series.TvdbId;
+        var tmdbId = providerIds.Series.TmdbId;
+        var imdbSeriesId = providerIds.Series.ImdbId;
+        var aniListId = providerIds.Series.AniListId;
 
         if (tvdbSeriesId is null && tmdbId is null && imdbSeriesId is null && aniListId is null)
         {
@@ -320,10 +315,11 @@ public class SyncSegmentsTask : IScheduledTask
 
         if (item is Episode episodeItem)
         {
-            tmdbId = TryGetIntProviderId(episodeItem.Series, "Tmdb");
-            tvdbId = TryGetIntProviderId(episodeItem, "Tvdb");
-            aniListId = TryGetIntProviderId(episodeItem.Series, "AniList");
-            imdbId = TryGetStringProviderId(episodeItem.Series, "Imdb");
+            var providerIds = GetEpisodeProviderIds(episodeItem);
+            tmdbId = providerIds.Series.TmdbId ?? providerIds.Season.TmdbId ?? providerIds.Episode.TmdbId;
+            tvdbId = providerIds.Episode.TvdbId ?? providerIds.Season.TvdbId ?? providerIds.Series.TvdbId;
+            aniListId = providerIds.Series.AniListId ?? providerIds.Season.AniListId ?? providerIds.Episode.AniListId;
+            imdbId = providerIds.Series.ImdbId ?? providerIds.Season.ImdbId ?? providerIds.Episode.ImdbId;
             season = episodeItem.ParentIndexNumber;
             episode = episodeItem.IndexNumber;
         }
@@ -461,6 +457,34 @@ public class SyncSegmentsTask : IScheduledTask
         });
     }
 
+    private EpisodeProviderIds GetEpisodeProviderIds(Episode episode)
+    {
+        Season? season = null;
+        if (episode.ParentId != Guid.Empty)
+        {
+            season = _libraryManager.GetItemById<Season>(episode.ParentId);
+        }
+
+        var series = episode.Series;
+
+        return new EpisodeProviderIds(
+            new ProviderIds(
+                TryGetIntProviderId(episode, "Tvdb"),
+                TryGetIntProviderId(episode, "Tmdb"),
+                TryGetStringProviderId(episode, "Imdb"),
+                TryGetIntProviderId(episode, "AniList")),
+            new ProviderIds(
+                TryGetIntProviderId(season, "Tvdb"),
+                TryGetIntProviderId(season, "Tmdb"),
+                TryGetStringProviderId(season, "Imdb"),
+                TryGetIntProviderId(season, "AniList")),
+            new ProviderIds(
+                TryGetIntProviderId(series, "Tvdb"),
+                TryGetIntProviderId(series, "Tmdb"),
+                TryGetStringProviderId(series, "Imdb"),
+                TryGetIntProviderId(series, "AniList")));
+    }
+
     private static void ReportProgress(IProgress<double> progress, int processed, int total)
     {
         if (total > 0)
@@ -484,4 +508,8 @@ public class SyncSegmentsTask : IScheduledTask
     }
 
     private sealed record EpisodeSeriesWorkItem(Guid ItemId, int SeasonNumber, int EpisodeNumber, long? DurationMs);
+
+    private sealed record ProviderIds(int? TvdbId, int? TmdbId, string? ImdbId, int? AniListId);
+
+    private sealed record EpisodeProviderIds(ProviderIds Episode, ProviderIds Season, ProviderIds Series);
 }

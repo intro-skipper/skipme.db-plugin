@@ -253,6 +253,7 @@ public class SyncSegmentsTask : IScheduledTask
         _taskManager.QueueScheduledTask(worker.ScheduledTask, DefaultTaskOptions);
     }
 
+    // Instance method because it resolves season context via _libraryManager through GetEpisodeProviderIds().
     private bool TryBuildShowLookup(Episode episode, out string key, out ShowLookupRequest request)
     {
         key = string.Empty;
@@ -319,6 +320,8 @@ public class SyncSegmentsTask : IScheduledTask
             var providerIds = GetEpisodeProviderIds(episodeItem);
             var lookupContext = GetEpisodeLookupContext(episodeItem, providerIds);
             tmdbId = providerIds.Episode.TmdbId ?? lookupContext.TmdbId;
+            // Movies endpoint accepts a single TVDB identifier for episodes; prefer episode ID first,
+            // then fall back to season/series IDs when episode-level IDs are unavailable.
             tvdbId = providerIds.Episode.TvdbId ?? lookupContext.TvdbSeasonId ?? lookupContext.TvdbSeriesId;
             aniListId = providerIds.Episode.AniListId ?? providerIds.Season.AniListId ?? providerIds.Series.AniListId;
             imdbId = lookupContext.ImdbSeriesId ?? providerIds.Season.ImdbId ?? providerIds.Episode.ImdbId;

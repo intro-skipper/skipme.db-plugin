@@ -259,9 +259,10 @@ public class SyncSegmentsTask : IScheduledTask
         request = new ShowLookupRequest();
 
         var providerIds = GetEpisodeProviderIds(episode);
-        var tvdbSeriesId = providerIds.Series.TvdbId;
-        var tmdbId = providerIds.Series.TmdbId;
-        var imdbSeriesId = providerIds.Series.ImdbId;
+        var lookupContext = GetEpisodeLookupContext(episode, providerIds);
+        var tvdbSeriesId = lookupContext.TvdbSeriesId;
+        var tmdbId = lookupContext.TmdbId;
+        var imdbSeriesId = lookupContext.ImdbSeriesId;
         var aniListId = providerIds.Series.AniListId;
 
         if (tvdbSeriesId is null && tmdbId is null && imdbSeriesId is null && aniListId is null)
@@ -316,12 +317,13 @@ public class SyncSegmentsTask : IScheduledTask
         if (item is Episode episodeItem)
         {
             var providerIds = GetEpisodeProviderIds(episodeItem);
-            tmdbId = providerIds.Episode.TmdbId ?? providerIds.Season.TmdbId ?? providerIds.Series.TmdbId;
-            tvdbId = providerIds.Episode.TvdbId ?? providerIds.Season.TvdbId ?? providerIds.Series.TvdbId;
+            var lookupContext = GetEpisodeLookupContext(episodeItem, providerIds);
+            tmdbId = providerIds.Episode.TmdbId ?? lookupContext.TmdbId;
+            tvdbId = providerIds.Episode.TvdbId ?? lookupContext.TvdbSeasonId ?? lookupContext.TvdbSeriesId;
             aniListId = providerIds.Episode.AniListId ?? providerIds.Season.AniListId ?? providerIds.Series.AniListId;
-            imdbId = providerIds.Series.ImdbId ?? providerIds.Season.ImdbId ?? providerIds.Episode.ImdbId;
-            season = episodeItem.ParentIndexNumber;
-            episode = episodeItem.IndexNumber;
+            imdbId = lookupContext.ImdbSeriesId ?? providerIds.Season.ImdbId ?? providerIds.Episode.ImdbId;
+            season = lookupContext.SeasonNumber;
+            episode = lookupContext.EpisodeNumber;
         }
         else
         {
@@ -485,6 +487,17 @@ public class SyncSegmentsTask : IScheduledTask
                 TryGetIntProviderId(series, "AniList")));
     }
 
+    private static EpisodeLookupContext GetEpisodeLookupContext(Episode episode, EpisodeProviderIds providerIds)
+    {
+        return new EpisodeLookupContext(
+            providerIds.Season.TvdbId,
+            providerIds.Series.TvdbId,
+            providerIds.Series.ImdbId,
+            providerIds.Series.TmdbId,
+            episode.ParentIndexNumber,
+            episode.IndexNumber);
+    }
+
     private static void ReportProgress(IProgress<double> progress, int processed, int total)
     {
         if (total > 0)
@@ -512,4 +525,12 @@ public class SyncSegmentsTask : IScheduledTask
     private sealed record ProviderIds(int? TvdbId, int? TmdbId, string? ImdbId, int? AniListId);
 
     private sealed record EpisodeProviderIds(ProviderIds Episode, ProviderIds Season, ProviderIds Series);
+
+    private sealed record EpisodeLookupContext(
+        int? TvdbSeasonId,
+        int? TvdbSeriesId,
+        string? ImdbSeriesId,
+        int? TmdbId,
+        int? SeasonNumber,
+        int? EpisodeNumber);
 }

@@ -316,9 +316,9 @@ public class SyncSegmentsTask : IScheduledTask
         if (item is Episode episodeItem)
         {
             var providerIds = GetEpisodeProviderIds(episodeItem);
-            tmdbId = providerIds.Series.TmdbId ?? providerIds.Season.TmdbId ?? providerIds.Episode.TmdbId;
+            tmdbId = providerIds.Episode.TmdbId ?? providerIds.Season.TmdbId ?? providerIds.Series.TmdbId;
             tvdbId = providerIds.Episode.TvdbId ?? providerIds.Season.TvdbId ?? providerIds.Series.TvdbId;
-            aniListId = providerIds.Series.AniListId ?? providerIds.Season.AniListId ?? providerIds.Episode.AniListId;
+            aniListId = providerIds.Episode.AniListId ?? providerIds.Season.AniListId ?? providerIds.Series.AniListId;
             imdbId = providerIds.Series.ImdbId ?? providerIds.Season.ImdbId ?? providerIds.Episode.ImdbId;
             season = episodeItem.ParentIndexNumber;
             episode = episodeItem.IndexNumber;

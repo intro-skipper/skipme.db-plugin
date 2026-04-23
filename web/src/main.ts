@@ -502,6 +502,33 @@ function setLibraryEnabled(section: UnifiedSection, enabled: boolean): void {
   }
 }
 
+function initializeDefaultDisabledState(
+  config: {
+    DisabledSeriesIds?: string[] | null;
+    DisabledSeasonIds?: string[] | null;
+    DisabledMovieIds?: string[] | null;
+    EnabledSpecialsSeasonIds?: string[] | null;
+  },
+  sections: UnifiedSection[],
+): void {
+  const hasSavedSelections =
+    (config.DisabledSeriesIds?.length ?? 0) > 0 ||
+    (config.DisabledSeasonIds?.length ?? 0) > 0 ||
+    (config.DisabledMovieIds?.length ?? 0) > 0 ||
+    (config.EnabledSpecialsSeasonIds?.length ?? 0) > 0;
+
+  if (hasSavedSelections) {
+    return;
+  }
+
+  disabledSeriesIds = new Set(
+    sections.flatMap((section) => section.seriesItems.map((series) => series.Id)),
+  );
+  disabledMovieIds = new Set(
+    sections.flatMap((section) => section.movieItems.map((movie) => movie.Id)),
+  );
+}
+
 // ── Unified library sections render ────────────────────────────────────────────
 function renderLibrarySections(): void {
   const sectionsEl = byId("skipme-library-sections");
@@ -691,21 +718,7 @@ function init(): void {
           ct === "tvshows" ? 0 : ct === "movies" ? 1 : 2;
         return order(a.collectionType) - order(b.collectionType);
       });
-
-      const hasSavedSelections =
-        (config.DisabledSeriesIds?.length ?? 0) > 0 ||
-        (config.DisabledSeasonIds?.length ?? 0) > 0 ||
-        (config.DisabledMovieIds?.length ?? 0) > 0 ||
-        (config.EnabledSpecialsSeasonIds?.length ?? 0) > 0;
-
-      if (!hasSavedSelections) {
-        disabledSeriesIds = new Set(
-          unifiedSections.flatMap((section) => section.seriesItems.map((series) => series.Id)),
-        );
-        disabledMovieIds = new Set(
-          unifiedSections.flatMap((section) => section.movieItems.map((movie) => movie.Id)),
-        );
-      }
+      initializeDefaultDisabledState(config, unifiedSections);
 
       // Show a truncation note if any library returned fewer items than it has.
       const anySeriesTruncated = unifiedSections.some((s) => s.seriesTotalCount > s.seriesItems.length);
@@ -862,7 +875,8 @@ function mountPage(rootEl: HTMLElement): void {
   init();
 
   const refreshTopDescription = (): void => {
-    window.setTimeout(updateTopDescription, 0);
+    // Defer until the active tab state settles after route/tab click changes.
+    queueMicrotask(updateTopDescription);
   };
   window.addEventListener("hashchange", refreshTopDescription);
   document.addEventListener("click", refreshTopDescription);

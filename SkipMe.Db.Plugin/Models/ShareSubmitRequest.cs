@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Intro Skipper contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Collections.ObjectModel;
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace SkipMe.Db.Plugin.Models;
 
@@ -11,20 +12,26 @@ namespace SkipMe.Db.Plugin.Models;
 public sealed class ShareSubmitRequest
 {
     /// <summary>Gets the filtered series IDs currently visible in the UI.</summary>
-    public Collection<string> FilteredSeriesIds { get; } = [];
+    [JsonInclude]
+    public IReadOnlyCollection<string> FilteredSeriesIds { get; init; } = [];
 
     /// <summary>Gets the filtered movie IDs currently visible in the UI.</summary>
-    public Collection<string> FilteredMovieIds { get; } = [];
+    [JsonInclude]
+    public IReadOnlyCollection<string> FilteredMovieIds { get; init; } = [];
 
     /// <summary>Gets the disabled series IDs from the current UI state.</summary>
-    public Collection<string> DisabledSeriesIds { get; } = [];
+    [JsonInclude]
+    public IReadOnlyCollection<string> DisabledSeriesIds { get; init; } = [];
 
     /// <summary>Gets the disabled season IDs from the current UI state.</summary>
-    public Collection<string> DisabledSeasonIds { get; } = [];
+    [JsonInclude]
+    public IReadOnlyCollection<string> DisabledSeasonIds { get; init; } = [];
 
     /// <summary>Gets the disabled movie IDs from the current UI state.</summary>
-    public Collection<string> DisabledMovieIds { get; } = [];
+    [JsonInclude]
+    public IReadOnlyCollection<string> DisabledMovieIds { get; init; } = [];
 
     /// <summary>Gets the explicitly enabled specials season IDs from the current UI state.</summary>
-    public Collection<string> EnabledSpecialsSeasonIds { get; } = [];
+    [JsonInclude]
+    public IReadOnlyCollection<string> EnabledSpecialsSeasonIds { get; init; } = [];
 }

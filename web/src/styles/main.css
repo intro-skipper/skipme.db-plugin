@@ -451,10 +451,18 @@
     margin-bottom: 0;
 }
 
+.skipme-library-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 0.8em;
+}
+
 .skipme-library-title {
     font-size: 0.82em;
     font-weight: 600;
-    margin: 0 0 0.8em;
+    margin: 0;
     opacity: 0.55;
     text-transform: uppercase;
     letter-spacing: 0.05em;

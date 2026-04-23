@@ -74,15 +74,16 @@ public sealed class ShareSubmissionService
         var disabledMovieIds = ParseGuidSet(request.DisabledMovieIds);
         var enabledSpecialsSeasonIds = ParseGuidSet(request.EnabledSpecialsSeasonIds);
 
-        var response = new ShareSubmitResponse { Ok = true };
-
         if (filteredSeriesIds.Count == 0 && filteredMovieIds.Count == 0)
         {
-            return response;
+            return new ShareSubmitResponse { Ok = true };
         }
 
-        var movieCandidates = BuildMovieCandidates(filteredMovieIds, disabledMovieIds, response);
-        var showCandidates = BuildShowCandidates(filteredSeriesIds, disabledSeriesIds, disabledSeasonIds, enabledSpecialsSeasonIds, response);
+        var skippedMissingMetadata = 0;
+        var skippedNoSegments = 0;
+
+        var movieCandidates = BuildMovieCandidates(filteredMovieIds, disabledMovieIds, ref skippedMissingMetadata);
+        var showCandidates = BuildShowCandidates(filteredSeriesIds, disabledSeriesIds, disabledSeasonIds, enabledSpecialsSeasonIds, ref skippedMissingMetadata);
 
         var allCandidateItemIds = movieCandidates.Select(m => m.ItemId)
             .Concat(showCandidates.Select(s => s.ItemId))
@@ -91,8 +92,8 @@ public sealed class ShareSubmissionService
 
         var introSegmentsByItemId = LoadIntroSkipperSegments(allCandidateItemIds);
 
-        var seasonRequests = BuildSeasonPayload(showCandidates, introSegmentsByItemId, response);
-        var movieRequests = BuildMoviePayload(movieCandidates, introSegmentsByItemId, response);
+        var seasonRequests = BuildSeasonPayload(showCandidates, introSegmentsByItemId, ref skippedNoSegments);
+        var movieRequests = BuildMoviePayload(movieCandidates, introSegmentsByItemId, ref skippedNoSegments);
 
         var allFingerprints = seasonRequests.SelectMany(s => s.Items).Select(i => i.Fingerprint)
             .Concat(movieRequests.Select(m => m.Fingerprint))
@@ -100,12 +101,17 @@ public sealed class ShareSubmissionService
 
         if (allFingerprints.Count == 0)
         {
-            return response;
+            return new ShareSubmitResponse
+            {
+                Ok = true,
+                SkippedMissingMetadata = skippedMissingMetadata,
+                SkippedNoSegments = skippedNoSegments,
+            };
         }
 
         var dedupedFingerprints = _segmentStore.GetUnsharedFingerprints(allFingerprints);
         var dedupedSet = new HashSet<SharedUploadFingerprint>(dedupedFingerprints);
-        response.SkippedAlreadyShared += allFingerprints.Count - dedupedSet.Count;
+        var skippedAlreadyShared = allFingerprints.Count - dedupedSet.Count;
 
         foreach (var season in seasonRequests)
         {
@@ -117,10 +123,19 @@ public sealed class ShareSubmissionService
 
         if (seasonRequests.Count == 0 && movieRequests.Count == 0)
         {
-            return response;
+            return new ShareSubmitResponse
+            {
+                Ok = true,
+                SkippedAlreadyShared = skippedAlreadyShared,
+                SkippedMissingMetadata = skippedMissingMetadata,
+                SkippedNoSegments = skippedNoSegments,
+            };
         }
 
-        var successfullyShared = new List<SharedUploadFingerprint>();
+        var ok = false; // Set true by any batch that succeeds; preserves partial success.
+        var sharedSegments = 0;
+        var sharedShowSeasons = 0;
+        var sharedMovies = 0;
         var errors = new List<string>();
         var http = _httpClientFactory.CreateClient(nameof(SkipMeApiClient));
 
@@ -129,13 +144,15 @@ public sealed class ShareSubmissionService
             var seasonResult = await SubmitAsync(http, "/v1/submit/season", seasonRequests, cancellationToken).ConfigureAwait(false);
             if (seasonResult.Ok)
             {
-                response.SharedSegments += seasonResult.Submitted;
-                response.SharedShowSeasons = seasonRequests.Count;
-                successfullyShared.AddRange(seasonRequests.SelectMany(s => s.Items).Select(i => i.Fingerprint));
+                ok = true;
+                sharedSegments += seasonResult.Submitted;
+                sharedShowSeasons = seasonRequests.Count;
+                // Record immediately so a crash before movie submission does not cause re-submission.
+                var seasonFingerprints = seasonRequests.SelectMany(s => s.Items).Select(i => i.Fingerprint).ToList();
+                await _segmentStore.RecordSharedFingerprintsAsync(seasonFingerprints).ConfigureAwait(false);
             }
             else
             {
-                response.Ok = false;
                 if (!string.IsNullOrWhiteSpace(seasonResult.Error))
                 {
                     errors.Add($"Season share failed: {seasonResult.Error}");
@@ -148,13 +165,15 @@ public sealed class ShareSubmissionService
             var movieResult = await SubmitAsync(http, "/v1/submit/collection", movieRequests, cancellationToken).ConfigureAwait(false);
             if (movieResult.Ok)
             {
-                response.SharedSegments += movieResult.Submitted;
-                response.SharedMovies = movieRequests.Count;
-                successfullyShared.AddRange(movieRequests.Select(m => m.Fingerprint));
+                ok = true;
+                sharedSegments += movieResult.Submitted;
+                sharedMovies = movieRequests.Count;
+                // Record immediately so state is durable even if the response is lost.
+                var movieFingerprints = movieRequests.Select(m => m.Fingerprint).ToList();
+                await _segmentStore.RecordSharedFingerprintsAsync(movieFingerprints).ConfigureAwait(false);
             }
             else
             {
-                response.Ok = false;
                 if (!string.IsNullOrWhiteSpace(movieResult.Error))
                 {
                     errors.Add($"Movie share failed: {movieResult.Error}");
@@ -162,14 +181,17 @@ public sealed class ShareSubmissionService
             }
         }
 
-        if (successfullyShared.Count > 0)
+        return new ShareSubmitResponse
         {
-            await _segmentStore.RecordSharedFingerprintsAsync(successfullyShared).ConfigureAwait(false);
-            response.Ok = true;
-        }
-
-        response.Error = errors.Count > 0 ? string.Join(" ", errors) : null;
-        return response;
+            Ok = ok,
+            SharedSegments = sharedSegments,
+            SharedShowSeasons = sharedShowSeasons,
+            SharedMovies = sharedMovies,
+            SkippedAlreadyShared = skippedAlreadyShared,
+            SkippedMissingMetadata = skippedMissingMetadata,
+            SkippedNoSegments = skippedNoSegments,
+            Error = errors.Count > 0 ? string.Join(" ", errors) : null,
+        };
     }
 
     private static HashSet<Guid> ParseGuidSet(IEnumerable<string>? raw)
@@ -191,7 +213,7 @@ public sealed class ShareSubmissionService
         return result;
     }
 
-    private List<MovieCandidate> BuildMovieCandidates(HashSet<Guid> filteredMovieIds, HashSet<Guid> disabledMovieIds, ShareSubmitResponse response)
+    private List<MovieCandidate> BuildMovieCandidates(HashSet<Guid> filteredMovieIds, HashSet<Guid> disabledMovieIds, ref int skippedMissingMetadata)
     {
         var result = new List<MovieCandidate>();
 
@@ -209,14 +231,14 @@ public sealed class ShareSubmissionService
 
             if (!TryGetDurationMs(movie, out var durationMs))
             {
-                response.SkippedMissingMetadata++;
+                skippedMissingMetadata++;
                 continue;
             }
 
             var ids = BuildIdentifiers(movie);
             if (!HasMovieMatchingStrategy(ids))
             {
-                response.SkippedMissingMetadata++;
+                skippedMissingMetadata++;
                 continue;
             }
 
@@ -231,19 +253,21 @@ public sealed class ShareSubmissionService
         HashSet<Guid> disabledSeriesIds,
         HashSet<Guid> disabledSeasonIds,
         HashSet<Guid> enabledSpecialsSeasonIds,
-        ShareSubmitResponse response)
+        ref int skippedMissingMetadata)
     {
         if (filteredSeriesIds.Count == 0)
         {
             return [];
         }
 
+        // Scope the query to only the filtered series so we don't scan the entire library.
         var episodes = _libraryManager
             .GetItemList(new InternalItemsQuery
             {
                 IncludeItemTypes = [Jellyfin.Data.Enums.BaseItemKind.Episode],
                 IsVirtualItem = false,
                 Recursive = true,
+                AncestorIds = [.. filteredSeriesIds],
             })
             .OfType<Episode>();
 
@@ -260,7 +284,7 @@ public sealed class ShareSubmissionService
             var seasonId = episode.ParentId;
             if (seasonId == Guid.Empty)
             {
-                response.SkippedMissingMetadata++;
+                skippedMissingMetadata++;
                 continue;
             }
 
@@ -276,13 +300,13 @@ public sealed class ShareSubmissionService
 
             if (episode.IndexNumber is not { } episodeNumber || episode.ParentIndexNumber is not { } seasonNumber)
             {
-                response.SkippedMissingMetadata++;
+                skippedMissingMetadata++;
                 continue;
             }
 
             if (!TryGetDurationMs(episode, out var durationMs))
             {
-                response.SkippedMissingMetadata++;
+                skippedMissingMetadata++;
                 continue;
             }
 
@@ -302,7 +326,7 @@ public sealed class ShareSubmissionService
 
             if (!HasSeasonMatchingStrategy(seasonMeta, episodeIds))
             {
-                response.SkippedMissingMetadata++;
+                skippedMissingMetadata++;
                 continue;
             }
 
@@ -315,7 +339,7 @@ public sealed class ShareSubmissionService
     private List<SeasonSubmitRequest> BuildSeasonPayload(
         IReadOnlyList<ShowCandidate> candidates,
         IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, SegmentRange>> introSegments,
-        ShareSubmitResponse response)
+        ref int skippedNoSegments)
     {
         var bySeason = new Dictionary<Guid, SeasonSubmitRequest>();
 
@@ -323,7 +347,7 @@ public sealed class ShareSubmissionService
         {
             if (!introSegments.TryGetValue(candidate.ItemId, out var segments) || segments.Count == 0)
             {
-                response.SkippedNoSegments++;
+                skippedNoSegments++;
                 continue;
             }
 
@@ -363,7 +387,7 @@ public sealed class ShareSubmissionService
     private List<CollectionSubmitRequest> BuildMoviePayload(
         IReadOnlyList<MovieCandidate> candidates,
         IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, SegmentRange>> introSegments,
-        ShareSubmitResponse response)
+        ref int skippedNoSegments)
     {
         var requests = new List<CollectionSubmitRequest>();
 
@@ -371,7 +395,7 @@ public sealed class ShareSubmissionService
         {
             if (!introSegments.TryGetValue(candidate.ItemId, out var segments) || segments.Count == 0)
             {
-                response.SkippedNoSegments++;
+                skippedNoSegments++;
                 continue;
             }
 

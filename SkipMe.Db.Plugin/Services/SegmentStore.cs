@@ -414,6 +414,7 @@ public sealed class SegmentStore : IDisposable
         using var createSharedUploads = _connection.CreateCommand();
         createSharedUploads.CommandText = """
             CREATE TABLE IF NOT EXISTS SharedUploads (
+                Id          INTEGER PRIMARY KEY,
                 ItemId      TEXT    NOT NULL,
                 Segment     TEXT    NOT NULL,
                 StartMs     INTEGER NOT NULL,
@@ -423,6 +424,20 @@ public sealed class SegmentStore : IDisposable
             )
             """;
         createSharedUploads.ExecuteNonQuery();
+
+        // Migration: if the table exists but lacks the Id primary key column (created by an older
+        // version), recreate it.  SharedUploads is a dedup history; losing it only means some
+        // already-shared items may be re-submitted once, which is acceptable.
+        using var checkIdColumn = _connection.CreateCommand();
+        checkIdColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SharedUploads') WHERE name = 'Id'";
+        var idColumnExists = (long)(checkIdColumn.ExecuteScalar() ?? 0L) > 0;
+        if (!idColumnExists)
+        {
+            using var dropOldTable = _connection.CreateCommand();
+            dropOldTable.CommandText = "DROP TABLE IF EXISTS SharedUploads";
+            dropOldTable.ExecuteNonQuery();
+            createSharedUploads.ExecuteNonQuery();
+        }
 
         using var createSharedUploadsIndex = _connection.CreateCommand();
         createSharedUploadsIndex.CommandText =

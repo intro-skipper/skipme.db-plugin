@@ -21,8 +21,6 @@ namespace SkipMe.Db.Plugin.Controllers;
 [Route("SkipMeDb")]
 public sealed class ShareController(ShareSubmissionService shareSubmissionService) : ControllerBase
 {
-    private readonly ShareSubmissionService _shareSubmissionService = shareSubmissionService;
-
     /// <summary>
     /// Shares enabled filtered items.
     /// </summary>
@@ -34,7 +32,7 @@ public sealed class ShareController(ShareSubmissionService shareSubmissionServic
         [FromBody] ShareSubmitRequest request,
         CancellationToken cancellationToken = default)
     {
-        var result = await _shareSubmissionService.ShareAsync(request, cancellationToken).ConfigureAwait(false);
+        var result = await shareSubmissionService.ShareAsync(request, cancellationToken).ConfigureAwait(false);
         return Ok(result);
     }
 }

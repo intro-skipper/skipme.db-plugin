@@ -18,6 +18,10 @@ const ROOT_SELECTOR = "#skipme-root";
 const OBSERVER_TIMEOUT_MS = 30_000;
 const SKIPME_PROVIDER_NAME = "skipme.db";
 const SKIPME_PROVIDER_ID = "4dbabcc18d37fdc81c1dd513a47b70cb";
+const SYNC_DESCRIPTION =
+  "Toggle crowd-sourced segment data on or off for individual libraries, series, seasons, or movies. Segments remain in the local database but will not be surfaced to Jellyfin when disabled.";
+const SHARE_DESCRIPTION =
+  "Toggle local segment data on or off for individual libraries, series, seasons, or movies that will be shared with SkipMe.db. Each unique segment type can only be shared once per episode.";
 
 // ── Library section data ───────────────────────────────────────────────────────
 interface UnifiedSection {
@@ -44,6 +48,12 @@ let eventsWired = false;
 let activeTab: "sync" | "share" = "sync";
 let filteredSeriesIds = new Set<string>();
 let filteredMovieIds = new Set<string>();
+
+// ── Share-tab independent state (always defaults to all disabled on page load) ──
+let shareDisabledSeriesIds = new Set<string>();
+let shareDisabledSeasonIds = new Set<string>();
+let shareDisabledMovieIds = new Set<string>();
+let shareEnabledSpecialsSeasonIds = new Set<string>();
 
 // ── DOM helpers ────────────────────────────────────────────────────────────────
 function byId<T extends HTMLElement = HTMLElement>(id: string): T | null {
@@ -73,6 +83,12 @@ function setStatus(msg: string, type: "ok" | "err" | ""): void {
   }
 }
 
+function updateTopDescription(): void {
+  const descriptionEl = byId("skipme-description");
+  if (!descriptionEl) return;
+  descriptionEl.textContent = activeTab === "share" ? SHARE_DESCRIPTION : SYNC_DESCRIPTION;
+}
+
 function setActiveTab(tab: "sync" | "share"): void {
   activeTab = tab;
 
@@ -90,6 +106,9 @@ function setActiveTab(tab: "sync" | "share"): void {
 
   if (saveBtn) saveBtn.style.display = syncActive ? "" : "none";
   if (shareBtn) shareBtn.style.display = syncActive ? "none" : "";
+
+  updateTopDescription();
+  renderLibrarySections();
 }
 
 // ── Toggle switch component ────────────────────────────────────────────────────
@@ -152,13 +171,29 @@ function createChevron(): SVGSVGElement {
   return svg;
 }
 
+// ── Tab-aware state accessors ──────────────────────────────────────────────────
+// Cards are always created for the currently active tab, and tabs re-render on
+// switch, so activeTab is stable for the entire lifetime of any given card.
+function activeDisabledSeriesIds(): Set<string> {
+  return activeTab === "sync" ? disabledSeriesIds : shareDisabledSeriesIds;
+}
+function activeDisabledSeasonIds(): Set<string> {
+  return activeTab === "sync" ? disabledSeasonIds : shareDisabledSeasonIds;
+}
+function activeDisabledMovieIds(): Set<string> {
+  return activeTab === "sync" ? disabledMovieIds : shareDisabledMovieIds;
+}
+function activeEnabledSpecialsSeasonIds(): Set<string> {
+  return activeTab === "sync" ? enabledSpecialsSeasonIds : shareEnabledSpecialsSeasonIds;
+}
+
 // ── Season card ────────────────────────────────────────────────────────────────
 function createSeasonCard(season: BaseItem, seriesId: string): HTMLElement {
-  const seriesDisabled = disabledSeriesIds.has(seriesId);
+  const seriesDisabled = activeDisabledSeriesIds().has(seriesId);
   const isSpecials = season.IndexNumber === 0;
   const seasonDisabled = isSpecials
-    ? !enabledSpecialsSeasonIds.has(season.Id)
-    : disabledSeasonIds.has(season.Id);
+    ? !activeEnabledSpecialsSeasonIds().has(season.Id)
+    : activeDisabledSeasonIds().has(season.Id);
 
   const card = document.createElement("div");
   card.className = "skipme-season-card";
@@ -215,15 +250,15 @@ function createSeasonCard(season: BaseItem, seriesId: string): HTMLElement {
     (enabled) => {
       if (isSpecials) {
         if (enabled) {
-          enabledSpecialsSeasonIds.add(season.Id);
+          activeEnabledSpecialsSeasonIds().add(season.Id);
         } else {
-          enabledSpecialsSeasonIds.delete(season.Id);
+          activeEnabledSpecialsSeasonIds().delete(season.Id);
         }
       } else {
         if (enabled) {
-          disabledSeasonIds.delete(season.Id);
+          activeDisabledSeasonIds().delete(season.Id);
         } else {
-          disabledSeasonIds.add(season.Id);
+          activeDisabledSeasonIds().add(season.Id);
         }
       }
       card.style.opacity = enabled ? "" : "0.6";
@@ -296,7 +331,7 @@ function loadAndRenderSeasons(panel: HTMLElement, seriesId: string): void {
 
 // ── Series card ────────────────────────────────────────────────────────────────
 function createSeriesCard(series: BaseItem): HTMLElement {
-  const isDisabled = disabledSeriesIds.has(series.Id);
+  const isDisabled = activeDisabledSeriesIds().has(series.Id);
 
   const card = document.createElement("div");
   card.className = "skipme-series-card";
@@ -360,11 +395,11 @@ function createSeriesCard(series: BaseItem): HTMLElement {
     !isDisabled,
     (enabled) => {
       if (enabled) {
-        disabledSeriesIds.delete(series.Id);
+        activeDisabledSeriesIds().delete(series.Id);
         hint.textContent = "Expand to manage individual seasons";
         hint.className = "skipme-series-hint";
       } else {
-        disabledSeriesIds.add(series.Id);
+        activeDisabledSeriesIds().add(series.Id);
         hint.textContent = "Segments disabled for all episodes";
         hint.className = "skipme-series-hint is-off";
       }
@@ -414,7 +449,7 @@ function createSeriesCard(series: BaseItem): HTMLElement {
 
 // ── Movie card ─────────────────────────────────────────────────────────────────
 function createMovieCard(movie: BaseItem): HTMLElement {
-  const isDisabled = disabledMovieIds.has(movie.Id);
+  const isDisabled = activeDisabledMovieIds().has(movie.Id);
 
   const card = document.createElement("div");
   card.className = "skipme-movie-card";
@@ -463,10 +498,10 @@ function createMovieCard(movie: BaseItem): HTMLElement {
     !isDisabled,
     (enabled) => {
       if (enabled) {
-        disabledMovieIds.delete(movie.Id);
+        activeDisabledMovieIds().delete(movie.Id);
         card.style.opacity = "";
       } else {
-        disabledMovieIds.add(movie.Id);
+        activeDisabledMovieIds().add(movie.Id);
         card.style.opacity = "0.6";
       }
     },
@@ -478,6 +513,30 @@ function createMovieCard(movie: BaseItem): HTMLElement {
   card.appendChild(footer);
 
   return card;
+}
+
+function isLibraryEnabled(section: UnifiedSection): boolean {
+  const allSeriesEnabled = section.seriesItems.every((series) => !activeDisabledSeriesIds().has(series.Id));
+  const allMoviesEnabled = section.movieItems.every((movie) => !activeDisabledMovieIds().has(movie.Id));
+  return allSeriesEnabled && allMoviesEnabled;
+}
+
+function setLibraryEnabled(section: UnifiedSection, enabled: boolean): void {
+  for (const series of section.seriesItems) {
+    if (enabled) {
+      activeDisabledSeriesIds().delete(series.Id);
+    } else {
+      activeDisabledSeriesIds().add(series.Id);
+    }
+  }
+
+  for (const movie of section.movieItems) {
+    if (enabled) {
+      activeDisabledMovieIds().delete(movie.Id);
+    } else {
+      activeDisabledMovieIds().add(movie.Id);
+    }
+  }
 }
 
 // ── Unified library sections render ────────────────────────────────────────────
@@ -505,10 +564,26 @@ function renderLibrarySections(): void {
     const sectionEl = document.createElement("div");
     sectionEl.className = "skipme-library-section";
 
+    const header = document.createElement("div");
+    header.className = "skipme-library-header";
+
     const heading = document.createElement("h4");
     heading.className = "skipme-library-title";
     heading.textContent = section.libraryName;
-    sectionEl.appendChild(heading);
+    header.appendChild(heading);
+
+    const libraryEnabled = isLibraryEnabled(section);
+    const libraryToggle = createToggle(
+      "skipme-library-" + section.libraryId,
+      libraryEnabled,
+      (enabled) => {
+        setLibraryEnabled(section, enabled);
+        renderLibrarySections();
+      },
+      libraryEnabled ? "Library enabled – click to disable" : "Library disabled – click to enable",
+    );
+    header.appendChild(libraryToggle.element);
+    sectionEl.appendChild(header);
 
     if (filteredSeries.length) {
       const list = document.createElement("div");
@@ -658,6 +733,16 @@ function init(): void {
         return order(a.collectionType) - order(b.collectionType);
       });
 
+      // Share tab always starts with every item disabled on each fresh page mount.
+      // This runs once here in init(); search/filter operations only call
+      // renderLibrarySections() and never reset this per-mount share state.
+      shareDisabledSeriesIds = new Set(
+        unifiedSections.flatMap((section) => section.seriesItems.map((series) => series.Id)),
+      );
+      shareDisabledMovieIds = new Set(
+        unifiedSections.flatMap((section) => section.movieItems.map((movie) => movie.Id)),
+      );
+
       // Show a truncation note if any library returned fewer items than it has.
       const anySeriesTruncated = unifiedSections.some((s) => s.seriesTotalCount > s.seriesItems.length);
       const anyMoviesTruncated = unifiedSections.some((s) => s.moviesTotalCount > s.movieItems.length);
@@ -732,10 +817,10 @@ function share(): void {
   const payload: ShareSubmitRequest = {
     FilteredSeriesIds: Array.from(filteredSeriesIds),
     FilteredMovieIds: Array.from(filteredMovieIds),
-    DisabledSeriesIds: Array.from(disabledSeriesIds),
-    DisabledSeasonIds: Array.from(disabledSeasonIds),
-    DisabledMovieIds: Array.from(disabledMovieIds),
-    EnabledSpecialsSeasonIds: Array.from(enabledSpecialsSeasonIds),
+    DisabledSeriesIds: Array.from(shareDisabledSeriesIds),
+    DisabledSeasonIds: Array.from(shareDisabledSeasonIds),
+    DisabledMovieIds: Array.from(shareDisabledMovieIds),
+    EnabledSpecialsSeasonIds: Array.from(shareEnabledSpecialsSeasonIds),
   };
 
   shareEnabledItems(payload)
@@ -771,10 +856,7 @@ function buildPageHTML(): string {
       <div class="sectionTitleContainer sectionTitleContainer-cards">
         <h2 class="sectionTitle">SkipMe.db – Settings</h2>
       </div>
-      <p class="fieldDescription">
-        Toggle crowd-sourced segment data on or off for individual series, seasons, or movies.
-        Segments remain in the local database but will not be surfaced to Jellyfin when disabled.
-      </p>
+      <p id="skipme-description" class="fieldDescription"></p>
 
       <div class="skipme-tabs" role="tablist" aria-label="SkipMe actions">
         <button id="skipme-tab-sync" type="button" class="skipme-tab-button is-active" role="tab" aria-selected="true">
@@ -866,6 +948,10 @@ function mountPage(rootEl: HTMLElement): void {
   disabledSeasonIds = new Set();
   disabledMovieIds = new Set();
   enabledSpecialsSeasonIds = new Set();
+  shareDisabledSeriesIds = new Set();
+  shareDisabledSeasonIds = new Set();
+  shareDisabledMovieIds = new Set();
+  shareEnabledSpecialsSeasonIds = new Set();
   unifiedSections = [];
   filterQuery = "";
   activeTab = "sync";

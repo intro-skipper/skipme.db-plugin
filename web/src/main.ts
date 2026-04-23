@@ -1,7 +1,17 @@
 import "./styles/main.css";
 
-import type { BaseItem, LibraryView, VirtualFolderInfo } from "./types.ts";
-import { fetchLibraries, fetchMoviesForLibrary, fetchSeriesForLibrary, fetchSeasons, fetchVirtualFolders, getImageUrl, loadConfig, saveConfig } from "./api.ts";
+import type { BaseItem, LibraryView, ShareSubmitRequest, VirtualFolderInfo } from "./types.ts";
+import {
+  fetchLibraries,
+  fetchMoviesForLibrary,
+  fetchSeriesForLibrary,
+  fetchSeasons,
+  fetchVirtualFolders,
+  getImageUrl,
+  loadConfig,
+  saveConfig,
+  shareEnabledItems,
+} from "./api.ts";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const ROOT_SELECTOR = "#skipme-root";
@@ -31,6 +41,9 @@ const seasonCache = new Map<string, BaseItem[]>();
 let searchDebounce = 0;
 let initRunning = false;
 let eventsWired = false;
+let activeTab: "sync" | "share" = "sync";
+let filteredSeriesIds = new Set<string>();
+let filteredMovieIds = new Set<string>();
 
 // ── DOM helpers ────────────────────────────────────────────────────────────────
 function byId<T extends HTMLElement = HTMLElement>(id: string): T | null {
@@ -58,6 +71,25 @@ function setStatus(msg: string, type: "ok" | "err" | ""): void {
       s.className = "skipme-status";
     }, 3000);
   }
+}
+
+function setActiveTab(tab: "sync" | "share"): void {
+  activeTab = tab;
+
+  const syncTabBtn = byId<HTMLButtonElement>("skipme-tab-sync");
+  const shareTabBtn = byId<HTMLButtonElement>("skipme-tab-share");
+  const saveBtn = byId<HTMLButtonElement>("skipme-save-btn");
+  const shareBtn = byId<HTMLButtonElement>("skipme-share-btn");
+
+  const syncActive = tab === "sync";
+  const shareActive = tab === "share";
+  syncTabBtn?.classList.toggle("is-active", syncActive);
+  shareTabBtn?.classList.toggle("is-active", shareActive);
+  syncTabBtn?.setAttribute("aria-selected", syncActive ? "true" : "false");
+  shareTabBtn?.setAttribute("aria-selected", shareActive ? "true" : "false");
+
+  if (saveBtn) saveBtn.style.display = syncActive ? "" : "none";
+  if (shareBtn) shareBtn.style.display = syncActive ? "none" : "";
 }
 
 // ── Toggle switch component ────────────────────────────────────────────────────
@@ -453,6 +485,8 @@ function renderLibrarySections(): void {
   const sectionsEl = byId("skipme-library-sections");
   if (!sectionsEl) return;
   sectionsEl.innerHTML = "";
+  filteredSeriesIds = new Set<string>();
+  filteredMovieIds = new Set<string>();
 
   const q = filterQuery;
   let hasAny = false;
@@ -481,6 +515,7 @@ function renderLibrarySections(): void {
       list.className = "skipme-series-list";
       const frag = document.createDocumentFragment();
       for (const s of filteredSeries) {
+        filteredSeriesIds.add(s.Id);
         frag.appendChild(createSeriesCard(s));
       }
       list.appendChild(frag);
@@ -491,6 +526,7 @@ function renderLibrarySections(): void {
       const grid = document.createElement("div");
       grid.className = "skipme-movies-grid";
       for (const m of filteredMovies) {
+        filteredMovieIds.add(m.Id);
         grid.appendChild(createMovieCard(m));
       }
       sectionEl.appendChild(grid);
@@ -685,6 +721,49 @@ function save(): void {
     });
 }
 
+function share(): void {
+  const btn = byId<HTMLButtonElement>("skipme-share-btn");
+  if (!btn) return;
+
+  btn.disabled = true;
+  btn.classList.add("is-loading");
+  setStatus("Sharing…", "");
+
+  const payload: ShareSubmitRequest = {
+    FilteredSeriesIds: Array.from(filteredSeriesIds),
+    FilteredMovieIds: Array.from(filteredMovieIds),
+    DisabledSeriesIds: Array.from(disabledSeriesIds),
+    DisabledSeasonIds: Array.from(disabledSeasonIds),
+    DisabledMovieIds: Array.from(disabledMovieIds),
+    EnabledSpecialsSeasonIds: Array.from(enabledSpecialsSeasonIds),
+  };
+
+  shareEnabledItems(payload)
+    .then((result) => {
+      if (!result.Ok && !result.SharedSegments) {
+        const suffix = result.Error ? ` ${result.Error}` : "";
+        setStatus(`Share failed.${suffix}`, "err");
+        return;
+      }
+
+      const message =
+        `Shared ${result.SharedSegments} segment(s). ` +
+        `Skipped ${result.SkippedAlreadyShared} already shared, ` +
+        `${result.SkippedMissingMetadata} missing metadata, ` +
+        `${result.SkippedNoSegments} without Intro Skipper timestamps.`;
+
+      setStatus(message, "ok");
+    })
+    .catch((err: unknown) => {
+      console.error("[SkipMe.db] Failed to share segments:", err);
+      setStatus("Failed to share — please try again.", "err");
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.classList.remove("is-loading");
+    });
+}
+
 // ── Page HTML template ─────────────────────────────────────────────────────────
 function buildPageHTML(): string {
   return `
@@ -696,6 +775,15 @@ function buildPageHTML(): string {
         Toggle crowd-sourced segment data on or off for individual series, seasons, or movies.
         Segments remain in the local database but will not be surfaced to Jellyfin when disabled.
       </p>
+
+      <div class="skipme-tabs" role="tablist" aria-label="SkipMe actions">
+        <button id="skipme-tab-sync" type="button" class="skipme-tab-button is-active" role="tab" aria-selected="true">
+          Sync
+        </button>
+        <button id="skipme-tab-share" type="button" class="skipme-tab-button" role="tab" aria-selected="false">
+          Share
+        </button>
+      </div>
 
       <div id="skipme-error" class="skipme-message skipme-error" style="display:none">
         <p>⚠ Failed to load library data. Please refresh the page.</p>
@@ -729,6 +817,8 @@ function buildPageHTML(): string {
       <div class="skipme-footer">
         <button id="skipme-save-btn" is="emby-button" type="button"
                 class="raised button-submit emby-button">Save Settings</button>
+        <button id="skipme-share-btn" is="emby-button" type="button"
+                class="raised button-submit emby-button" style="display:none">Share Enabled Items</button>
         <span id="skipme-status" class="skipme-status"></span>
       </div>
     </div>`;
@@ -740,7 +830,10 @@ function wireEvents(): void {
 
   const searchEl = byId<HTMLInputElement>("skipme-search");
   const saveBtn = byId<HTMLButtonElement>("skipme-save-btn");
-  if (!searchEl || !saveBtn) return;
+  const shareBtn = byId<HTMLButtonElement>("skipme-share-btn");
+  const syncTabBtn = byId<HTMLButtonElement>("skipme-tab-sync");
+  const shareTabBtn = byId<HTMLButtonElement>("skipme-tab-share");
+  if (!searchEl || !saveBtn || !shareBtn || !syncTabBtn || !shareTabBtn) return;
 
   eventsWired = true;
 
@@ -754,6 +847,9 @@ function wireEvents(): void {
   });
 
   saveBtn.addEventListener("click", save);
+  shareBtn.addEventListener("click", share);
+  syncTabBtn.addEventListener("click", () => setActiveTab("sync"));
+  shareTabBtn.addEventListener("click", () => setActiveTab("share"));
 }
 
 // ── Page mount / unmount ───────────────────────────────────────────────────────
@@ -772,9 +868,13 @@ function mountPage(rootEl: HTMLElement): void {
   enabledSpecialsSeasonIds = new Set();
   unifiedSections = [];
   filterQuery = "";
+  activeTab = "sync";
+  filteredSeriesIds = new Set();
+  filteredMovieIds = new Set();
   seasonCache.clear();
 
   rootEl.innerHTML = buildPageHTML();
+  setActiveTab(activeTab);
   wireEvents();
   init();
 

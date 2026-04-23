@@ -11,7 +11,7 @@ const SKIPME_PROVIDER_ID = "4dbabcc18d37fdc81c1dd513a47b70cb";
 const SYNC_DESCRIPTION =
   "Toggle crowd-sourced segment data on or off for individual libraries, series, seasons, or movies. Segments remain in the local database but will not be surfaced to Jellyfin when disabled.";
 const SHARE_DESCRIPTION =
-  "Toggle local segment data on or off for individual libraries, series, seasons, or movies that will be shared with SkipMe.db . Segment data can only be shared once per episode.";
+  "Toggle local segment data on or off for individual libraries, series, seasons, or movies that will be shared with SkipMe.db. Segment data can only be shared once per episode.";
 
 // ── Library section data ───────────────────────────────────────────────────────
 interface UnifiedSection {
@@ -878,13 +878,20 @@ function mountPage(rootEl: HTMLElement): void {
     // Defer until the active tab state settles after route/tab click changes.
     queueMicrotask(updateTopDescription);
   };
+  const tabButtons = Array.from(
+    document.querySelectorAll<HTMLElement>("[role='tab'], .emby-tab-button, .pageTabButton"),
+  );
   window.addEventListener("hashchange", refreshTopDescription);
-  document.addEventListener("click", refreshTopDescription);
+  for (const tabButton of tabButtons) {
+    tabButton.addEventListener("click", refreshTopDescription);
+  }
 
   destroyPage = () => {
     window.clearTimeout(searchDebounce);
     window.removeEventListener("hashchange", refreshTopDescription);
-    document.removeEventListener("click", refreshTopDescription);
+    for (const tabButton of tabButtons) {
+      tabButton.removeEventListener("click", refreshTopDescription);
+    }
   };
 }
 

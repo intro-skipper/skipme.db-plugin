@@ -315,6 +315,16 @@
     justify-content: center;
 }
 
+#skipme-share-btn {
+    border-radius: 24px;
+    text-align: center;
+    justify-content: center;
+}
+
+#skipme-share-btn.is-loading {
+    opacity: 0.75;
+}
+
 .skipme-status {
     font-size: 0.85em;
     transition: opacity 0.3s;
@@ -331,6 +341,31 @@
 
 .skipme-filter-controls {
     margin-top: 1em;
+}
+
+.skipme-tabs {
+    margin: 1em 0 0.7em;
+    display: inline-flex;
+    gap: 6px;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.skipme-tab-button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    border-radius: 999px;
+    padding: 0.45em 1em;
+    cursor: pointer;
+    opacity: 0.7;
+    font-weight: 600;
+}
+
+.skipme-tab-button.is-active {
+    background: rgba(255, 255, 255, 0.22);
+    opacity: 1;
 }
 
 .skipme-section-title {

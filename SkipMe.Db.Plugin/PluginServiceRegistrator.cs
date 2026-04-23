@@ -23,6 +23,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddHttpClient(nameof(SkipMeApiClient));
         serviceCollection.AddSingleton<SkipMeApiClient>();
         serviceCollection.AddSingleton<SegmentStore>();
+        serviceCollection.AddSingleton<ShareSubmissionService>();
         serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
         serviceCollection.AddSingleton<IScheduledTask, SyncSegmentsTask>();
     }

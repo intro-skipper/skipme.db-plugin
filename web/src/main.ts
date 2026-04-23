@@ -11,7 +11,7 @@ const SKIPME_PROVIDER_ID = "4dbabcc18d37fdc81c1dd513a47b70cb";
 const SYNC_DESCRIPTION =
   "Toggle crowd-sourced segment data on or off for individual libraries, series, seasons, or movies. Segments remain in the local database but will not be surfaced to Jellyfin when disabled.";
 const SHARE_DESCRIPTION =
-  "Toggle local segment data on or off for individual libraries, series, seasons, or movies that will be shared with SkipMe.db. Segment data can only be shared once per episode.";
+  "Toggle local segment data on or off for individual libraries, series, seasons, or movies that will be shared with SkipMe.db. Each unique segment type can only be shared once per episode.";
 
 // ── Library section data ───────────────────────────────────────────────────────
 interface UnifiedSection {

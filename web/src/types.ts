@@ -36,6 +36,26 @@ export interface ItemQueryResult {
   TotalRecordCount?: number | null;
 }
 
+export interface ShareSubmitRequest {
+  FilteredSeriesIds: string[];
+  FilteredMovieIds: string[];
+  DisabledSeriesIds: string[];
+  DisabledSeasonIds: string[];
+  DisabledMovieIds: string[];
+  EnabledSpecialsSeasonIds: string[];
+}
+
+export interface ShareSubmitResponse {
+  Ok: boolean;
+  SharedSegments: number;
+  SharedShowSeasons: number;
+  SharedMovies: number;
+  SkippedAlreadyShared: number;
+  SkippedMissingMetadata: number;
+  SkippedNoSegments: number;
+  Error?: string | null;
+}
+
 // ── Jellyfin globals injected by the dashboard ─────────────────────────────────
 // Only the stable methods present in all supported Jellyfin versions are declared
 // here.  Internal helpers such as getCurrentUserId() and getItems() are not part

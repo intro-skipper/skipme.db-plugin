@@ -1,7 +1,17 @@
 import "./styles/main.css";
 
-import type { BaseItem, LibraryView, VirtualFolderInfo } from "./types.ts";
-import { fetchLibraries, fetchMoviesForLibrary, fetchSeriesForLibrary, fetchSeasons, fetchVirtualFolders, getImageUrl, loadConfig, saveConfig } from "./api.ts";
+import type { BaseItem, LibraryView, ShareSubmitRequest, VirtualFolderInfo } from "./types.ts";
+import {
+  fetchLibraries,
+  fetchMoviesForLibrary,
+  fetchSeriesForLibrary,
+  fetchSeasons,
+  fetchVirtualFolders,
+  getImageUrl,
+  loadConfig,
+  saveConfig,
+  shareEnabledItems,
+} from "./api.ts";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const ROOT_SELECTOR = "#skipme-root";
@@ -35,6 +45,15 @@ const seasonCache = new Map<string, BaseItem[]>();
 let searchDebounce = 0;
 let initRunning = false;
 let eventsWired = false;
+let activeTab: "sync" | "share" = "sync";
+let filteredSeriesIds = new Set<string>();
+let filteredMovieIds = new Set<string>();
+
+// ── Share-tab independent state (always defaults to all disabled on page load) ──
+let shareDisabledSeriesIds = new Set<string>();
+let shareDisabledSeasonIds = new Set<string>();
+let shareDisabledMovieIds = new Set<string>();
+let shareEnabledSpecialsSeasonIds = new Set<string>();
 
 // ── DOM helpers ────────────────────────────────────────────────────────────────
 function byId<T extends HTMLElement = HTMLElement>(id: string): T | null {
@@ -64,30 +83,32 @@ function setStatus(msg: string, type: "ok" | "err" | ""): void {
   }
 }
 
-function isShareTabContext(): boolean {
-  const activeTab = document.querySelector<HTMLElement>(
-    "[role='tab'][aria-selected='true'], .emby-tab-button-active, .pageTabButton-selected",
-  );
-  const activeTabText = (activeTab?.textContent ?? "").trim().toLowerCase();
-  if (activeTabText.includes("share")) {
-    return true;
-  }
-
-  if (activeTabText.includes("sync")) {
-    return false;
-  }
-
-  const routeText = `${window.location.hash} ${window.location.search}`.toLowerCase();
-  return routeText.includes("share");
-}
-
 function updateTopDescription(): void {
   const descriptionEl = byId("skipme-description");
-  if (!descriptionEl) {
-    return;
-  }
+  if (!descriptionEl) return;
+  descriptionEl.textContent = activeTab === "share" ? SHARE_DESCRIPTION : SYNC_DESCRIPTION;
+}
 
-  descriptionEl.textContent = isShareTabContext() ? SHARE_DESCRIPTION : SYNC_DESCRIPTION;
+function setActiveTab(tab: "sync" | "share"): void {
+  activeTab = tab;
+
+  const syncTabBtn = byId<HTMLButtonElement>("skipme-tab-sync");
+  const shareTabBtn = byId<HTMLButtonElement>("skipme-tab-share");
+  const saveBtn = byId<HTMLButtonElement>("skipme-save-btn");
+  const shareBtn = byId<HTMLButtonElement>("skipme-share-btn");
+
+  const syncActive = tab === "sync";
+  const shareActive = tab === "share";
+  syncTabBtn?.classList.toggle("is-active", syncActive);
+  shareTabBtn?.classList.toggle("is-active", shareActive);
+  syncTabBtn?.setAttribute("aria-selected", syncActive ? "true" : "false");
+  shareTabBtn?.setAttribute("aria-selected", shareActive ? "true" : "false");
+
+  if (saveBtn) saveBtn.style.display = syncActive ? "" : "none";
+  if (shareBtn) shareBtn.style.display = syncActive ? "none" : "";
+
+  updateTopDescription();
+  renderLibrarySections();
 }
 
 // ── Toggle switch component ────────────────────────────────────────────────────
@@ -150,13 +171,29 @@ function createChevron(): SVGSVGElement {
   return svg;
 }
 
+// ── Tab-aware state accessors ──────────────────────────────────────────────────
+// Cards are always created for the currently active tab, and tabs re-render on
+// switch, so activeTab is stable for the entire lifetime of any given card.
+function activeDisabledSeriesIds(): Set<string> {
+  return activeTab === "sync" ? disabledSeriesIds : shareDisabledSeriesIds;
+}
+function activeDisabledSeasonIds(): Set<string> {
+  return activeTab === "sync" ? disabledSeasonIds : shareDisabledSeasonIds;
+}
+function activeDisabledMovieIds(): Set<string> {
+  return activeTab === "sync" ? disabledMovieIds : shareDisabledMovieIds;
+}
+function activeEnabledSpecialsSeasonIds(): Set<string> {
+  return activeTab === "sync" ? enabledSpecialsSeasonIds : shareEnabledSpecialsSeasonIds;
+}
+
 // ── Season card ────────────────────────────────────────────────────────────────
 function createSeasonCard(season: BaseItem, seriesId: string): HTMLElement {
-  const seriesDisabled = disabledSeriesIds.has(seriesId);
+  const seriesDisabled = activeDisabledSeriesIds().has(seriesId);
   const isSpecials = season.IndexNumber === 0;
   const seasonDisabled = isSpecials
-    ? !enabledSpecialsSeasonIds.has(season.Id)
-    : disabledSeasonIds.has(season.Id);
+    ? !activeEnabledSpecialsSeasonIds().has(season.Id)
+    : activeDisabledSeasonIds().has(season.Id);
 
   const card = document.createElement("div");
   card.className = "skipme-season-card";
@@ -213,15 +250,15 @@ function createSeasonCard(season: BaseItem, seriesId: string): HTMLElement {
     (enabled) => {
       if (isSpecials) {
         if (enabled) {
-          enabledSpecialsSeasonIds.add(season.Id);
+          activeEnabledSpecialsSeasonIds().add(season.Id);
         } else {
-          enabledSpecialsSeasonIds.delete(season.Id);
+          activeEnabledSpecialsSeasonIds().delete(season.Id);
         }
       } else {
         if (enabled) {
-          disabledSeasonIds.delete(season.Id);
+          activeDisabledSeasonIds().delete(season.Id);
         } else {
-          disabledSeasonIds.add(season.Id);
+          activeDisabledSeasonIds().add(season.Id);
         }
       }
       card.style.opacity = enabled ? "" : "0.6";
@@ -294,7 +331,7 @@ function loadAndRenderSeasons(panel: HTMLElement, seriesId: string): void {
 
 // ── Series card ────────────────────────────────────────────────────────────────
 function createSeriesCard(series: BaseItem): HTMLElement {
-  const isDisabled = disabledSeriesIds.has(series.Id);
+  const isDisabled = activeDisabledSeriesIds().has(series.Id);
 
   const card = document.createElement("div");
   card.className = "skipme-series-card";
@@ -358,11 +395,11 @@ function createSeriesCard(series: BaseItem): HTMLElement {
     !isDisabled,
     (enabled) => {
       if (enabled) {
-        disabledSeriesIds.delete(series.Id);
+        activeDisabledSeriesIds().delete(series.Id);
         hint.textContent = "Expand to manage individual seasons";
         hint.className = "skipme-series-hint";
       } else {
-        disabledSeriesIds.add(series.Id);
+        activeDisabledSeriesIds().add(series.Id);
         hint.textContent = "Segments disabled for all episodes";
         hint.className = "skipme-series-hint is-off";
       }
@@ -412,7 +449,7 @@ function createSeriesCard(series: BaseItem): HTMLElement {
 
 // ── Movie card ─────────────────────────────────────────────────────────────────
 function createMovieCard(movie: BaseItem): HTMLElement {
-  const isDisabled = disabledMovieIds.has(movie.Id);
+  const isDisabled = activeDisabledMovieIds().has(movie.Id);
 
   const card = document.createElement("div");
   card.className = "skipme-movie-card";
@@ -461,10 +498,10 @@ function createMovieCard(movie: BaseItem): HTMLElement {
     !isDisabled,
     (enabled) => {
       if (enabled) {
-        disabledMovieIds.delete(movie.Id);
+        activeDisabledMovieIds().delete(movie.Id);
         card.style.opacity = "";
       } else {
-        disabledMovieIds.add(movie.Id);
+        activeDisabledMovieIds().add(movie.Id);
         card.style.opacity = "0.6";
       }
     },
@@ -479,54 +516,27 @@ function createMovieCard(movie: BaseItem): HTMLElement {
 }
 
 function isLibraryEnabled(section: UnifiedSection): boolean {
-  const allSeriesEnabled = section.seriesItems.every((series) => !disabledSeriesIds.has(series.Id));
-  const allMoviesEnabled = section.movieItems.every((movie) => !disabledMovieIds.has(movie.Id));
+  const allSeriesEnabled = section.seriesItems.every((series) => !activeDisabledSeriesIds().has(series.Id));
+  const allMoviesEnabled = section.movieItems.every((movie) => !activeDisabledMovieIds().has(movie.Id));
   return allSeriesEnabled && allMoviesEnabled;
 }
 
 function setLibraryEnabled(section: UnifiedSection, enabled: boolean): void {
   for (const series of section.seriesItems) {
     if (enabled) {
-      disabledSeriesIds.delete(series.Id);
+      activeDisabledSeriesIds().delete(series.Id);
     } else {
-      disabledSeriesIds.add(series.Id);
+      activeDisabledSeriesIds().add(series.Id);
     }
   }
 
   for (const movie of section.movieItems) {
     if (enabled) {
-      disabledMovieIds.delete(movie.Id);
+      activeDisabledMovieIds().delete(movie.Id);
     } else {
-      disabledMovieIds.add(movie.Id);
+      activeDisabledMovieIds().add(movie.Id);
     }
   }
-}
-
-function initializeDefaultDisabledState(
-  config: {
-    DisabledSeriesIds?: string[] | null;
-    DisabledSeasonIds?: string[] | null;
-    DisabledMovieIds?: string[] | null;
-    EnabledSpecialsSeasonIds?: string[] | null;
-  },
-  sections: UnifiedSection[],
-): void {
-  const hasSavedSelections =
-    (config.DisabledSeriesIds?.length ?? 0) > 0 ||
-    (config.DisabledSeasonIds?.length ?? 0) > 0 ||
-    (config.DisabledMovieIds?.length ?? 0) > 0 ||
-    (config.EnabledSpecialsSeasonIds?.length ?? 0) > 0;
-
-  if (hasSavedSelections) {
-    return;
-  }
-
-  disabledSeriesIds = new Set(
-    sections.flatMap((section) => section.seriesItems.map((series) => series.Id)),
-  );
-  disabledMovieIds = new Set(
-    sections.flatMap((section) => section.movieItems.map((movie) => movie.Id)),
-  );
 }
 
 // ── Unified library sections render ────────────────────────────────────────────
@@ -534,6 +544,8 @@ function renderLibrarySections(): void {
   const sectionsEl = byId("skipme-library-sections");
   if (!sectionsEl) return;
   sectionsEl.innerHTML = "";
+  filteredSeriesIds = new Set<string>();
+  filteredMovieIds = new Set<string>();
 
   const q = filterQuery;
   let hasAny = false;
@@ -578,6 +590,7 @@ function renderLibrarySections(): void {
       list.className = "skipme-series-list";
       const frag = document.createDocumentFragment();
       for (const s of filteredSeries) {
+        filteredSeriesIds.add(s.Id);
         frag.appendChild(createSeriesCard(s));
       }
       list.appendChild(frag);
@@ -588,6 +601,7 @@ function renderLibrarySections(): void {
       const grid = document.createElement("div");
       grid.className = "skipme-movies-grid";
       for (const m of filteredMovies) {
+        filteredMovieIds.add(m.Id);
         grid.appendChild(createMovieCard(m));
       }
       sectionEl.appendChild(grid);
@@ -718,7 +732,14 @@ function init(): void {
           ct === "tvshows" ? 0 : ct === "movies" ? 1 : 2;
         return order(a.collectionType) - order(b.collectionType);
       });
-      initializeDefaultDisabledState(config, unifiedSections);
+
+      // Share tab always starts with every item disabled; sync tab uses saved config.
+      shareDisabledSeriesIds = new Set(
+        unifiedSections.flatMap((section) => section.seriesItems.map((series) => series.Id)),
+      );
+      shareDisabledMovieIds = new Set(
+        unifiedSections.flatMap((section) => section.movieItems.map((movie) => movie.Id)),
+      );
 
       // Show a truncation note if any library returned fewer items than it has.
       const anySeriesTruncated = unifiedSections.some((s) => s.seriesTotalCount > s.seriesItems.length);
@@ -783,6 +804,49 @@ function save(): void {
     });
 }
 
+function share(): void {
+  const btn = byId<HTMLButtonElement>("skipme-share-btn");
+  if (!btn) return;
+
+  btn.disabled = true;
+  btn.classList.add("is-loading");
+  setStatus("Sharing…", "");
+
+  const payload: ShareSubmitRequest = {
+    FilteredSeriesIds: Array.from(filteredSeriesIds),
+    FilteredMovieIds: Array.from(filteredMovieIds),
+    DisabledSeriesIds: Array.from(shareDisabledSeriesIds),
+    DisabledSeasonIds: Array.from(shareDisabledSeasonIds),
+    DisabledMovieIds: Array.from(shareDisabledMovieIds),
+    EnabledSpecialsSeasonIds: Array.from(shareEnabledSpecialsSeasonIds),
+  };
+
+  shareEnabledItems(payload)
+    .then((result) => {
+      if (!result.Ok && !result.SharedSegments) {
+        const suffix = result.Error ? ` ${result.Error}` : "";
+        setStatus(`Share failed.${suffix}`, "err");
+        return;
+      }
+
+      const message =
+        `Shared ${result.SharedSegments} segment(s). ` +
+        `Skipped ${result.SkippedAlreadyShared} already shared, ` +
+        `${result.SkippedMissingMetadata} missing metadata, ` +
+        `${result.SkippedNoSegments} without Intro Skipper timestamps.`;
+
+      setStatus(message, "ok");
+    })
+    .catch((err: unknown) => {
+      console.error("[SkipMe.db] Failed to share segments:", err);
+      setStatus("Failed to share — please try again.", "err");
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.classList.remove("is-loading");
+    });
+}
+
 // ── Page HTML template ─────────────────────────────────────────────────────────
 function buildPageHTML(): string {
   return `
@@ -791,6 +855,15 @@ function buildPageHTML(): string {
         <h2 class="sectionTitle">SkipMe.db – Settings</h2>
       </div>
       <p id="skipme-description" class="fieldDescription"></p>
+
+      <div class="skipme-tabs" role="tablist" aria-label="SkipMe actions">
+        <button id="skipme-tab-sync" type="button" class="skipme-tab-button is-active" role="tab" aria-selected="true">
+          Sync
+        </button>
+        <button id="skipme-tab-share" type="button" class="skipme-tab-button" role="tab" aria-selected="false">
+          Share
+        </button>
+      </div>
 
       <div id="skipme-error" class="skipme-message skipme-error" style="display:none">
         <p>⚠ Failed to load library data. Please refresh the page.</p>
@@ -824,6 +897,8 @@ function buildPageHTML(): string {
       <div class="skipme-footer">
         <button id="skipme-save-btn" is="emby-button" type="button"
                 class="raised button-submit emby-button">Save Settings</button>
+        <button id="skipme-share-btn" is="emby-button" type="button"
+                class="raised button-submit emby-button" style="display:none">Share Enabled Items</button>
         <span id="skipme-status" class="skipme-status"></span>
       </div>
     </div>`;
@@ -835,7 +910,10 @@ function wireEvents(): void {
 
   const searchEl = byId<HTMLInputElement>("skipme-search");
   const saveBtn = byId<HTMLButtonElement>("skipme-save-btn");
-  if (!searchEl || !saveBtn) return;
+  const shareBtn = byId<HTMLButtonElement>("skipme-share-btn");
+  const syncTabBtn = byId<HTMLButtonElement>("skipme-tab-sync");
+  const shareTabBtn = byId<HTMLButtonElement>("skipme-tab-share");
+  if (!searchEl || !saveBtn || !shareBtn || !syncTabBtn || !shareTabBtn) return;
 
   eventsWired = true;
 
@@ -849,6 +927,9 @@ function wireEvents(): void {
   });
 
   saveBtn.addEventListener("click", save);
+  shareBtn.addEventListener("click", share);
+  syncTabBtn.addEventListener("click", () => setActiveTab("sync"));
+  shareTabBtn.addEventListener("click", () => setActiveTab("share"));
 }
 
 // ── Page mount / unmount ───────────────────────────────────────────────────────
@@ -865,33 +946,24 @@ function mountPage(rootEl: HTMLElement): void {
   disabledSeasonIds = new Set();
   disabledMovieIds = new Set();
   enabledSpecialsSeasonIds = new Set();
+  shareDisabledSeriesIds = new Set();
+  shareDisabledSeasonIds = new Set();
+  shareDisabledMovieIds = new Set();
+  shareEnabledSpecialsSeasonIds = new Set();
   unifiedSections = [];
   filterQuery = "";
+  activeTab = "sync";
+  filteredSeriesIds = new Set();
+  filteredMovieIds = new Set();
   seasonCache.clear();
 
   rootEl.innerHTML = buildPageHTML();
-  updateTopDescription();
+  setActiveTab(activeTab);
   wireEvents();
   init();
 
-  const refreshTopDescription = (): void => {
-    // Defer until the active tab state settles after route/tab click changes.
-    queueMicrotask(updateTopDescription);
-  };
-  const tabButtons = Array.from(
-    document.querySelectorAll<HTMLElement>("[role='tab'], .emby-tab-button, .pageTabButton"),
-  );
-  window.addEventListener("hashchange", refreshTopDescription);
-  for (const tabButton of tabButtons) {
-    tabButton.addEventListener("click", refreshTopDescription);
-  }
-
   destroyPage = () => {
     window.clearTimeout(searchDebounce);
-    window.removeEventListener("hashchange", refreshTopDescription);
-    for (const tabButton of tabButtons) {
-      tabButton.removeEventListener("click", refreshTopDescription);
-    }
   };
 }
 

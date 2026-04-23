@@ -22,6 +22,7 @@ namespace SkipMe.Db.Plugin.Services;
 public sealed class SegmentStore : IDisposable
 {
     private const string LastSuccessfulSyncUtcKey = "LastSuccessfulSyncUtc";
+    private const long ShareDedupToleranceMs = 1000;
 
     private readonly SqliteConnection _connection;
     private readonly ILogger<SegmentStore> _logger;
@@ -246,6 +247,122 @@ public sealed class SegmentStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Filters out fingerprints that are already present in the local share history
+    /// within ±1 second for start, end, and duration.
+    /// </summary>
+    /// <param name="candidates">Candidate fingerprints.</param>
+    /// <returns>Only fingerprints that have not already been shared.</returns>
+    public IReadOnlyList<SharedUploadFingerprint> GetUnsharedFingerprints(IReadOnlyList<SharedUploadFingerprint> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            return [];
+        }
+
+        var result = new List<SharedUploadFingerprint>(candidates.Count);
+
+        _semaphore.Wait();
+        try
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT 1
+                FROM SharedUploads
+                WHERE ItemId = @itemId
+                  AND Segment = @segment
+                  AND ABS(StartMs - @startMs) <= @tol
+                  AND ABS(EndMs - @endMs) <= @tol
+                  AND ABS(DurationMs - @durationMs) <= @tol
+                LIMIT 1
+                """;
+
+            var pItemId = cmd.Parameters.Add("@itemId", SqliteType.Text);
+            var pSegment = cmd.Parameters.Add("@segment", SqliteType.Text);
+            var pStartMs = cmd.Parameters.Add("@startMs", SqliteType.Integer);
+            var pEndMs = cmd.Parameters.Add("@endMs", SqliteType.Integer);
+            var pDurationMs = cmd.Parameters.Add("@durationMs", SqliteType.Integer);
+            var pTolerance = cmd.Parameters.Add("@tol", SqliteType.Integer);
+            pTolerance.Value = ShareDedupToleranceMs;
+
+            foreach (var candidate in candidates)
+            {
+                pItemId.Value = candidate.ItemId.ToString();
+                pSegment.Value = candidate.Segment;
+                pStartMs.Value = candidate.StartMs;
+                pEndMs.Value = candidate.EndMs;
+                pDurationMs.Value = candidate.DurationMs;
+
+                var exists = cmd.ExecuteScalar() is not null;
+                if (!exists)
+                {
+                    result.Add(candidate);
+                }
+            }
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Records shared fingerprints in the local share history table.
+    /// </summary>
+    /// <param name="fingerprints">Fingerprints to record.</param>
+    /// <returns>A task that completes when the rows are persisted.</returns>
+    public async Task RecordSharedFingerprintsAsync(IReadOnlyList<SharedUploadFingerprint> fingerprints)
+    {
+        if (fingerprints.Count == 0)
+        {
+            return;
+        }
+
+        await _semaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var dbTx = await _connection.BeginTransactionAsync().ConfigureAwait(false);
+            var sqliteTx = (SqliteTransaction)dbTx;
+            await using (dbTx.ConfigureAwait(false))
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = sqliteTx;
+                cmd.CommandText = """
+                    INSERT INTO SharedUploads (ItemId, Segment, StartMs, EndMs, DurationMs, SharedAtUtc)
+                    VALUES (@itemId, @segment, @startMs, @endMs, @durationMs, @sharedAtUtc)
+                    """;
+
+                var pItemId = cmd.Parameters.Add("@itemId", SqliteType.Text);
+                var pSegment = cmd.Parameters.Add("@segment", SqliteType.Text);
+                var pStartMs = cmd.Parameters.Add("@startMs", SqliteType.Integer);
+                var pEndMs = cmd.Parameters.Add("@endMs", SqliteType.Integer);
+                var pDurationMs = cmd.Parameters.Add("@durationMs", SqliteType.Integer);
+                var pSharedAtUtc = cmd.Parameters.Add("@sharedAtUtc", SqliteType.Text);
+                // Keep one consistent timestamp for the full batch insertion transaction.
+                var sharedAtUtc = DateTimeOffset.UtcNow.ToString("O");
+
+                foreach (var fingerprint in fingerprints)
+                {
+                    pItemId.Value = fingerprint.ItemId.ToString();
+                    pSegment.Value = fingerprint.Segment;
+                    pStartMs.Value = fingerprint.StartMs;
+                    pEndMs.Value = fingerprint.EndMs;
+                    pDurationMs.Value = fingerprint.DurationMs;
+                    pSharedAtUtc.Value = sharedAtUtc;
+                    await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+
+                await dbTx.CommitAsync().ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -293,6 +410,39 @@ public sealed class SegmentStore : IDisposable
             )
             """;
         createMetadataTable.ExecuteNonQuery();
+
+        using var createSharedUploads = _connection.CreateCommand();
+        createSharedUploads.CommandText = """
+            CREATE TABLE IF NOT EXISTS SharedUploads (
+                Id          INTEGER PRIMARY KEY,
+                ItemId      TEXT    NOT NULL,
+                Segment     TEXT    NOT NULL,
+                StartMs     INTEGER NOT NULL,
+                EndMs       INTEGER NOT NULL,
+                DurationMs  INTEGER NOT NULL,
+                SharedAtUtc TEXT    NOT NULL
+            )
+            """;
+        createSharedUploads.ExecuteNonQuery();
+
+        // Migration: if the table exists but lacks the Id primary key column (created by an older
+        // version), recreate it.  SharedUploads is a dedup history; losing it only means some
+        // already-shared items may be re-submitted once, which is acceptable.
+        using var checkIdColumn = _connection.CreateCommand();
+        checkIdColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SharedUploads') WHERE name = 'Id'";
+        var idColumnExists = (long)(checkIdColumn.ExecuteScalar() ?? 0L) > 0;
+        if (!idColumnExists)
+        {
+            using var dropOldTable = _connection.CreateCommand();
+            dropOldTable.CommandText = "DROP TABLE IF EXISTS SharedUploads";
+            dropOldTable.ExecuteNonQuery();
+            createSharedUploads.ExecuteNonQuery();
+        }
+
+        using var createSharedUploadsIndex = _connection.CreateCommand();
+        createSharedUploadsIndex.CommandText =
+            "CREATE INDEX IF NOT EXISTS IX_SharedUploads_ItemSegment ON SharedUploads(ItemId, Segment)";
+        createSharedUploadsIndex.ExecuteNonQuery();
 
         _logger.LogDebug("Segment database schema initialized");
     }

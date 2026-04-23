@@ -448,6 +448,30 @@ function createMovieCard(movie: BaseItem): HTMLElement {
   return card;
 }
 
+function isLibraryEnabled(section: UnifiedSection): boolean {
+  const allSeriesEnabled = section.seriesItems.every((series) => !disabledSeriesIds.has(series.Id));
+  const allMoviesEnabled = section.movieItems.every((movie) => !disabledMovieIds.has(movie.Id));
+  return allSeriesEnabled && allMoviesEnabled;
+}
+
+function setLibraryEnabled(section: UnifiedSection, enabled: boolean): void {
+  for (const series of section.seriesItems) {
+    if (enabled) {
+      disabledSeriesIds.delete(series.Id);
+    } else {
+      disabledSeriesIds.add(series.Id);
+    }
+  }
+
+  for (const movie of section.movieItems) {
+    if (enabled) {
+      disabledMovieIds.delete(movie.Id);
+    } else {
+      disabledMovieIds.add(movie.Id);
+    }
+  }
+}
+
 // ── Unified library sections render ────────────────────────────────────────────
 function renderLibrarySections(): void {
   const sectionsEl = byId("skipme-library-sections");
@@ -471,10 +495,26 @@ function renderLibrarySections(): void {
     const sectionEl = document.createElement("div");
     sectionEl.className = "skipme-library-section";
 
+    const header = document.createElement("div");
+    header.className = "skipme-library-header";
+
     const heading = document.createElement("h4");
     heading.className = "skipme-library-title";
     heading.textContent = section.libraryName;
-    sectionEl.appendChild(heading);
+    header.appendChild(heading);
+
+    const libraryEnabled = isLibraryEnabled(section);
+    const libraryToggle = createToggle(
+      "skipme-library-" + section.libraryId,
+      libraryEnabled,
+      (enabled) => {
+        setLibraryEnabled(section, enabled);
+        renderLibrarySections();
+      },
+      libraryEnabled ? "Library enabled – click to disable" : "Library disabled – click to enable",
+    );
+    header.appendChild(libraryToggle.element);
+    sectionEl.appendChild(header);
 
     if (filteredSeries.length) {
       const list = document.createElement("div");
@@ -621,6 +661,21 @@ function init(): void {
           ct === "tvshows" ? 0 : ct === "movies" ? 1 : 2;
         return order(a.collectionType) - order(b.collectionType);
       });
+
+      const hasSavedSelections =
+        (config.DisabledSeriesIds?.length ?? 0) > 0 ||
+        (config.DisabledSeasonIds?.length ?? 0) > 0 ||
+        (config.DisabledMovieIds?.length ?? 0) > 0 ||
+        (config.EnabledSpecialsSeasonIds?.length ?? 0) > 0;
+
+      if (!hasSavedSelections) {
+        disabledSeriesIds = new Set(
+          unifiedSections.flatMap((section) => section.seriesItems.map((series) => series.Id)),
+        );
+        disabledMovieIds = new Set(
+          unifiedSections.flatMap((section) => section.movieItems.map((movie) => movie.Id)),
+        );
+      }
 
       // Show a truncation note if any library returned fewer items than it has.
       const anySeriesTruncated = unifiedSections.some((s) => s.seriesTotalCount > s.seriesItems.length);

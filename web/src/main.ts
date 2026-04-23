@@ -82,10 +82,11 @@ function setActiveTab(tab: "sync" | "share"): void {
   const shareBtn = byId<HTMLButtonElement>("skipme-share-btn");
 
   const syncActive = tab === "sync";
+  const shareActive = tab === "share";
   syncTabBtn?.classList.toggle("is-active", syncActive);
-  shareTabBtn?.classList.toggle("is-active", !syncActive);
+  shareTabBtn?.classList.toggle("is-active", shareActive);
   syncTabBtn?.setAttribute("aria-selected", syncActive ? "true" : "false");
-  shareTabBtn?.setAttribute("aria-selected", !syncActive ? "true" : "false");
+  shareTabBtn?.setAttribute("aria-selected", shareActive ? "true" : "false");
 
   if (saveBtn) saveBtn.style.display = syncActive ? "" : "none";
   if (shareBtn) shareBtn.style.display = syncActive ? "none" : "";

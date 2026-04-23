@@ -165,7 +165,7 @@ public sealed class ShareSubmissionService
         if (successfullyShared.Count > 0)
         {
             await _segmentStore.RecordSharedFingerprintsAsync(successfullyShared).ConfigureAwait(false);
-            response.Ok = response.Ok || response.SharedSegments > 0;
+            response.Ok = true;
         }
 
         response.Error = errors.Count > 0 ? string.Join(" ", errors) : null;

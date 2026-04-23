@@ -340,6 +340,7 @@ public sealed class SegmentStore : IDisposable
                 var pEndMs = cmd.Parameters.Add("@endMs", SqliteType.Integer);
                 var pDurationMs = cmd.Parameters.Add("@durationMs", SqliteType.Integer);
                 var pSharedAtUtc = cmd.Parameters.Add("@sharedAtUtc", SqliteType.Text);
+                // Keep one consistent timestamp for the full batch insertion transaction.
                 var sharedAtUtc = DateTimeOffset.UtcNow.ToString("O");
 
                 foreach (var fingerprint in fingerprints)

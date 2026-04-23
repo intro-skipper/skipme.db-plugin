@@ -8,6 +8,10 @@ const ROOT_SELECTOR = "#skipme-root";
 const OBSERVER_TIMEOUT_MS = 30_000;
 const SKIPME_PROVIDER_NAME = "skipme.db";
 const SKIPME_PROVIDER_ID = "4dbabcc18d37fdc81c1dd513a47b70cb";
+const SYNC_DESCRIPTION =
+  "Toggle crowd-sourced segment data on or off for individual libraries, series, seasons, or movies. Segments remain in the local database but will not be surfaced to Jellyfin when disabled.";
+const SHARE_DESCRIPTION =
+  "Toggle local segment data on or off for individual libraries, series, seasons, or movies that will be shared with SkipMe.db . Segment data can only be shared once per episode.";
 
 // ── Library section data ───────────────────────────────────────────────────────
 interface UnifiedSection {
@@ -58,6 +62,32 @@ function setStatus(msg: string, type: "ok" | "err" | ""): void {
       s.className = "skipme-status";
     }, 3000);
   }
+}
+
+function isShareTabContext(): boolean {
+  const activeTab = document.querySelector<HTMLElement>(
+    "[role='tab'][aria-selected='true'], .emby-tab-button-active, .pageTabButton-selected",
+  );
+  const activeTabText = (activeTab?.textContent ?? "").trim().toLowerCase();
+  if (activeTabText.includes("share")) {
+    return true;
+  }
+
+  if (activeTabText.includes("sync")) {
+    return false;
+  }
+
+  const routeText = `${window.location.hash} ${window.location.search}`.toLowerCase();
+  return routeText.includes("share");
+}
+
+function updateTopDescription(): void {
+  const descriptionEl = byId("skipme-description");
+  if (!descriptionEl) {
+    return;
+  }
+
+  descriptionEl.textContent = isShareTabContext() ? SHARE_DESCRIPTION : SYNC_DESCRIPTION;
 }
 
 // ── Toggle switch component ────────────────────────────────────────────────────
@@ -747,10 +777,7 @@ function buildPageHTML(): string {
       <div class="sectionTitleContainer sectionTitleContainer-cards">
         <h2 class="sectionTitle">SkipMe.db – Settings</h2>
       </div>
-      <p class="fieldDescription">
-        Toggle crowd-sourced segment data on or off for individual series, seasons, or movies.
-        Segments remain in the local database but will not be surfaced to Jellyfin when disabled.
-      </p>
+      <p id="skipme-description" class="fieldDescription"></p>
 
       <div id="skipme-error" class="skipme-message skipme-error" style="display:none">
         <p>⚠ Failed to load library data. Please refresh the page.</p>
@@ -830,11 +857,20 @@ function mountPage(rootEl: HTMLElement): void {
   seasonCache.clear();
 
   rootEl.innerHTML = buildPageHTML();
+  updateTopDescription();
   wireEvents();
   init();
 
+  const refreshTopDescription = (): void => {
+    window.setTimeout(updateTopDescription, 0);
+  };
+  window.addEventListener("hashchange", refreshTopDescription);
+  document.addEventListener("click", refreshTopDescription);
+
   destroyPage = () => {
     window.clearTimeout(searchDebounce);
+    window.removeEventListener("hashchange", refreshTopDescription);
+    document.removeEventListener("click", refreshTopDescription);
   };
 }
 

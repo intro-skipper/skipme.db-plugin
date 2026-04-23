@@ -57,7 +57,7 @@ public sealed class ShareSubmissionService
         _segmentStore = segmentStore;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
-        _introSkipperDbPath = Path.Combine(applicationPaths.DataPath, "introskipper", "introskipper.db");
+        _introSkipperDbPath = Path.Join(applicationPaths.DataPath, "introskipper", "introskipper.db");
     }
 
     /// <summary>

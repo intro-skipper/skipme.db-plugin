@@ -6,14 +6,14 @@ using System;
 namespace SkipMe.Db.Plugin.Models;
 
 /// <summary>
-/// Fingerprint used to deduplicate previously shared timestamps.
+/// Timestamp used to deduplicate previously shared timestamps.
 /// </summary>
 /// <param name="ItemId">Jellyfin item ID (movie or episode).</param>
 /// <param name="Segment">Segment type.</param>
 /// <param name="StartMs">Segment start in milliseconds.</param>
 /// <param name="EndMs">Segment end in milliseconds.</param>
 /// <param name="DurationMs">Item duration in milliseconds.</param>
-public sealed record SharedUploadFingerprint(
+public sealed record SharedUploadTimestamp(
     Guid ItemId,
     string Segment,
     long StartMs,

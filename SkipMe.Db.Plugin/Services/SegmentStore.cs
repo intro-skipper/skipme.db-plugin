@@ -248,19 +248,19 @@ public sealed class SegmentStore : IDisposable
     }
 
     /// <summary>
-    /// Filters out fingerprints that are already present in the local share history
+    /// Filters out timestamps that are already present in the local share history
     /// within ±1 second for start, end, and duration.
     /// </summary>
-    /// <param name="candidates">Candidate fingerprints.</param>
-    /// <returns>Only fingerprints that have not already been shared.</returns>
-    public IReadOnlyList<SharedUploadFingerprint> GetUnsharedFingerprints(IReadOnlyList<SharedUploadFingerprint> candidates)
+    /// <param name="candidates">Candidate timestamps.</param>
+    /// <returns>Only timestamps that have not already been shared.</returns>
+    public IReadOnlyList<SharedUploadTimestamp> GetUnsharedTimestamps(IReadOnlyList<SharedUploadTimestamp> candidates)
     {
         if (candidates.Count == 0)
         {
             return [];
         }
 
-        var result = new List<SharedUploadFingerprint>(candidates.Count);
+        var result = new List<SharedUploadTimestamp>(candidates.Count);
 
         _semaphore.Wait();
         try
@@ -309,13 +309,13 @@ public sealed class SegmentStore : IDisposable
     }
 
     /// <summary>
-    /// Records shared fingerprints in the local share history table.
+    /// Records shared timestamps in the local share history table.
     /// </summary>
-    /// <param name="fingerprints">Fingerprints to record.</param>
+    /// <param name="timestamps">Timestamps to record.</param>
     /// <returns>A task that completes when the rows are persisted.</returns>
-    public async Task RecordSharedFingerprintsAsync(IReadOnlyList<SharedUploadFingerprint> fingerprints)
+    public async Task RecordSharedTimestampsAsync(IReadOnlyList<SharedUploadTimestamp> timestamps)
     {
-        if (fingerprints.Count == 0)
+        if (timestamps.Count == 0)
         {
             return;
         }
@@ -343,13 +343,13 @@ public sealed class SegmentStore : IDisposable
                 // Keep one consistent timestamp for the full batch insertion transaction.
                 var sharedAtUtc = DateTimeOffset.UtcNow.ToString("O");
 
-                foreach (var fingerprint in fingerprints)
+                foreach (var timestamp in timestamps)
                 {
-                    pItemId.Value = fingerprint.ItemId.ToString();
-                    pSegment.Value = fingerprint.Segment;
-                    pStartMs.Value = fingerprint.StartMs;
-                    pEndMs.Value = fingerprint.EndMs;
-                    pDurationMs.Value = fingerprint.DurationMs;
+                    pItemId.Value = timestamp.ItemId.ToString();
+                    pSegment.Value = timestamp.Segment;
+                    pStartMs.Value = timestamp.StartMs;
+                    pEndMs.Value = timestamp.EndMs;
+                    pDurationMs.Value = timestamp.DurationMs;
                     pSharedAtUtc.Value = sharedAtUtc;
                     await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
                 }

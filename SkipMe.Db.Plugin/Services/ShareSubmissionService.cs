@@ -96,11 +96,11 @@ public sealed class ShareSubmissionService
         var seasonRequests = BuildSeasonPayload(showCandidates, introSegmentsByItemId, ref skippedNoSegments);
         var movieRequests = BuildMoviePayload(movieCandidates, introSegmentsByItemId, ref skippedNoSegments);
 
-        var allFingerprints = seasonRequests.SelectMany(s => s.Items).Select(i => i.Fingerprint)
-            .Concat(movieRequests.Select(m => m.Fingerprint))
+        var allTimestamps = seasonRequests.SelectMany(s => s.Items).Select(i => i.Timestamp)
+            .Concat(movieRequests.Select(m => m.Timestamp))
             .ToList();
 
-        if (allFingerprints.Count == 0)
+        if (allTimestamps.Count == 0)
         {
             return new ShareSubmitResponse
             {
@@ -110,17 +110,17 @@ public sealed class ShareSubmissionService
             };
         }
 
-        var dedupedFingerprints = _segmentStore.GetUnsharedFingerprints(allFingerprints);
-        var dedupedSet = new HashSet<SharedUploadFingerprint>(dedupedFingerprints);
-        var skippedAlreadyShared = allFingerprints.Count - dedupedSet.Count;
+        var dedupedTimestamps = _segmentStore.GetUnsharedTimestamps(allTimestamps);
+        var dedupedSet = new HashSet<SharedUploadTimestamp>(dedupedTimestamps);
+        var skippedAlreadyShared = allTimestamps.Count - dedupedSet.Count;
 
         foreach (var season in seasonRequests)
         {
-            season.Items = [.. season.Items.Where(i => dedupedSet.Contains(i.Fingerprint))];
+            season.Items = [.. season.Items.Where(i => dedupedSet.Contains(i.Timestamp))];
         }
 
         seasonRequests = [.. seasonRequests.Where(s => s.Items.Count > 0)];
-        movieRequests = [.. movieRequests.Where(m => dedupedSet.Contains(m.Fingerprint))];
+        movieRequests = [.. movieRequests.Where(m => dedupedSet.Contains(m.Timestamp))];
 
         if (seasonRequests.Count == 0 && movieRequests.Count == 0)
         {
@@ -150,8 +150,8 @@ public sealed class ShareSubmissionService
                 sharedSegments += seasonResult.Submitted;
                 sharedShowSeasons = seasonRequests.Count;
                 // Record immediately so a crash before movie submission does not cause re-submission.
-                var seasonFingerprints = seasonRequests.SelectMany(s => s.Items).Select(i => i.Fingerprint).ToList();
-                await _segmentStore.RecordSharedFingerprintsAsync(seasonFingerprints).ConfigureAwait(false);
+                var seasonTimestamps = seasonRequests.SelectMany(s => s.Items).Select(i => i.Timestamp).ToList();
+                await _segmentStore.RecordSharedTimestampsAsync(seasonTimestamps).ConfigureAwait(false);
             }
             else
             {
@@ -171,8 +171,8 @@ public sealed class ShareSubmissionService
                 sharedSegments += movieResult.Submitted;
                 sharedMovies = movieRequests.Count;
                 // Record immediately so state is durable even if the response is lost.
-                var movieFingerprints = movieRequests.Select(m => m.Fingerprint).ToList();
-                await _segmentStore.RecordSharedFingerprintsAsync(movieFingerprints).ConfigureAwait(false);
+                var movieTimestamps = movieRequests.Select(m => m.Timestamp).ToList();
+                await _segmentStore.RecordSharedTimestampsAsync(movieTimestamps).ConfigureAwait(false);
             }
             else
             {
@@ -378,7 +378,7 @@ public sealed class ShareSubmissionService
                     DurationMs = candidate.DurationMs,
                     StartMs = range.StartMs,
                     EndMs = range.EndMs,
-                    Fingerprint = new SharedUploadFingerprint(candidate.ItemId, segment, range.StartMs, range.EndMs, candidate.DurationMs),
+                    Timestamp = new SharedUploadTimestamp(candidate.ItemId, segment, range.StartMs, range.EndMs, candidate.DurationMs),
                 });
             }
         }
@@ -413,7 +413,7 @@ public sealed class ShareSubmissionService
                     DurationMs = candidate.DurationMs,
                     StartMs = range.StartMs,
                     EndMs = range.EndMs,
-                    Fingerprint = new SharedUploadFingerprint(candidate.ItemId, segment, range.StartMs, range.EndMs, candidate.DurationMs),
+                    Timestamp = new SharedUploadTimestamp(candidate.ItemId, segment, range.StartMs, range.EndMs, candidate.DurationMs),
                 });
             }
         }
@@ -668,7 +668,7 @@ public sealed class ShareSubmissionService
         public long EndMs { get; set; }
 
         [JsonIgnore]
-        public SharedUploadFingerprint Fingerprint { get; set; } = new(Guid.Empty, string.Empty, 0, 0, 0);
+        public SharedUploadTimestamp Timestamp { get; set; } = new(Guid.Empty, string.Empty, 0, 0, 0);
     }
 
     private sealed class CollectionSubmitRequest
@@ -698,6 +698,6 @@ public sealed class ShareSubmissionService
         public long EndMs { get; set; }
 
         [JsonIgnore]
-        public SharedUploadFingerprint Fingerprint { get; set; } = new(Guid.Empty, string.Empty, 0, 0, 0);
+        public SharedUploadTimestamp Timestamp { get; set; } = new(Guid.Empty, string.Empty, 0, 0, 0);
     }
 }

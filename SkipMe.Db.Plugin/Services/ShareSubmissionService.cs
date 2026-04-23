@@ -132,7 +132,7 @@ public sealed class ShareSubmissionService
             };
         }
 
-        var ok = true;
+        var ok = false; // Set true by any batch that succeeds; preserves partial success.
         var sharedSegments = 0;
         var sharedShowSeasons = 0;
         var sharedMovies = 0;
@@ -144,6 +144,7 @@ public sealed class ShareSubmissionService
             var seasonResult = await SubmitAsync(http, "/v1/submit/season", seasonRequests, cancellationToken).ConfigureAwait(false);
             if (seasonResult.Ok)
             {
+                ok = true;
                 sharedSegments += seasonResult.Submitted;
                 sharedShowSeasons = seasonRequests.Count;
                 // Record immediately so a crash before movie submission does not cause re-submission.
@@ -152,7 +153,6 @@ public sealed class ShareSubmissionService
             }
             else
             {
-                ok = false;
                 if (!string.IsNullOrWhiteSpace(seasonResult.Error))
                 {
                     errors.Add($"Season share failed: {seasonResult.Error}");
@@ -165,20 +165,15 @@ public sealed class ShareSubmissionService
             var movieResult = await SubmitAsync(http, "/v1/submit/collection", movieRequests, cancellationToken).ConfigureAwait(false);
             if (movieResult.Ok)
             {
+                ok = true;
                 sharedSegments += movieResult.Submitted;
                 sharedMovies = movieRequests.Count;
                 // Record immediately so state is durable even if the response is lost.
                 var movieFingerprints = movieRequests.Select(m => m.Fingerprint).ToList();
                 await _segmentStore.RecordSharedFingerprintsAsync(movieFingerprints).ConfigureAwait(false);
-                ok = true;
             }
             else
             {
-                if (sharedShowSeasons == 0)
-                {
-                    ok = false;
-                }
-
                 if (!string.IsNullOrWhiteSpace(movieResult.Error))
                 {
                     errors.Add($"Movie share failed: {movieResult.Error}");

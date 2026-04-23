@@ -733,7 +733,9 @@ function init(): void {
         return order(a.collectionType) - order(b.collectionType);
       });
 
-      // Share tab always starts with every item disabled; sync tab uses saved config.
+      // Share tab always starts with every item disabled on each fresh page mount.
+      // This runs once here in init(); search/filter operations only call
+      // renderLibrarySections() and never reset this per-mount share state.
       shareDisabledSeriesIds = new Set(
         unifiedSections.flatMap((section) => section.seriesItems.map((series) => series.Id)),
       );

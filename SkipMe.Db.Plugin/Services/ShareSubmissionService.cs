@@ -8,6 +8,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -138,6 +139,7 @@ public sealed class ShareSubmissionService
         var sharedMovies = 0;
         var errors = new List<string>();
         var http = _httpClientFactory.CreateClient(nameof(SkipMeApiClient));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SkipMe.db", "0.0"));
 
         if (seasonRequests.Count > 0)
         {

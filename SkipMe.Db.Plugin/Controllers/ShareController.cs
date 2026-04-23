@@ -26,6 +26,9 @@ public sealed class ShareController(ShareSubmissionService shareSubmissionServic
     /// <summary>
     /// Shares enabled filtered items.
     /// </summary>
+    /// <param name="request">Share request payload.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The share run summary.</returns>
     [HttpPost("Share")]
     public async Task<ActionResult<ShareSubmitResponse>> ShareAsync(
         [FromBody] ShareSubmitRequest request,

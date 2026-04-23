@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Intro Skipper contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 namespace SkipMe.Db.Plugin.Models;
 
@@ -10,21 +10,21 @@ namespace SkipMe.Db.Plugin.Models;
 /// </summary>
 public sealed class ShareSubmitRequest
 {
-    /// <summary>Gets or sets the filtered series IDs currently visible in the UI.</summary>
-    public IList<string> FilteredSeriesIds { get; set; } = [];
+    /// <summary>Gets the filtered series IDs currently visible in the UI.</summary>
+    public Collection<string> FilteredSeriesIds { get; } = [];
 
-    /// <summary>Gets or sets the filtered movie IDs currently visible in the UI.</summary>
-    public IList<string> FilteredMovieIds { get; set; } = [];
+    /// <summary>Gets the filtered movie IDs currently visible in the UI.</summary>
+    public Collection<string> FilteredMovieIds { get; } = [];
 
-    /// <summary>Gets or sets disabled series IDs from the current UI state.</summary>
-    public IList<string> DisabledSeriesIds { get; set; } = [];
+    /// <summary>Gets the disabled series IDs from the current UI state.</summary>
+    public Collection<string> DisabledSeriesIds { get; } = [];
 
-    /// <summary>Gets or sets disabled season IDs from the current UI state.</summary>
-    public IList<string> DisabledSeasonIds { get; set; } = [];
+    /// <summary>Gets the disabled season IDs from the current UI state.</summary>
+    public Collection<string> DisabledSeasonIds { get; } = [];
 
-    /// <summary>Gets or sets disabled movie IDs from the current UI state.</summary>
-    public IList<string> DisabledMovieIds { get; set; } = [];
+    /// <summary>Gets the disabled movie IDs from the current UI state.</summary>
+    public Collection<string> DisabledMovieIds { get; } = [];
 
-    /// <summary>Gets or sets explicitly enabled specials season IDs from the current UI state.</summary>
-    public IList<string> EnabledSpecialsSeasonIds { get; set; } = [];
+    /// <summary>Gets the explicitly enabled specials season IDs from the current UI state.</summary>
+    public Collection<string> EnabledSpecialsSeasonIds { get; } = [];
 }

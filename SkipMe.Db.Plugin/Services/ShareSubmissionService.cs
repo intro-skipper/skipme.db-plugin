@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -39,6 +40,11 @@ public sealed class ShareSubmissionService
     /// <summary>
     /// Initializes a new instance of the <see cref="ShareSubmissionService"/> class.
     /// </summary>
+    /// <param name="libraryManager">Jellyfin library manager.</param>
+    /// <param name="segmentStore">Local SkipMe segment store.</param>
+    /// <param name="httpClientFactory">HTTP client factory.</param>
+    /// <param name="applicationPaths">Application path provider.</param>
+    /// <param name="logger">Logger.</param>
     public ShareSubmissionService(
         ILibraryManager libraryManager,
         SegmentStore segmentStore,
@@ -56,6 +62,9 @@ public sealed class ShareSubmissionService
     /// <summary>
     /// Shares enabled filtered items.
     /// </summary>
+    /// <param name="request">Share request payload.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Share run summary.</returns>
     public async Task<ShareSubmitResponse> ShareAsync(ShareSubmitRequest request, CancellationToken cancellationToken)
     {
         var filteredSeriesIds = ParseGuidSet(request.FilteredSeriesIds);
@@ -386,13 +395,14 @@ public sealed class ShareSubmissionService
         return requests;
     }
 
-    private IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, SegmentRange>> LoadIntroSkipperSegments(IReadOnlyList<Guid> itemIds)
+    [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities", Justification = "IN-clause placeholders are generated internally and each value is parameterized.")]
+    private Dictionary<Guid, IReadOnlyDictionary<string, SegmentRange>> LoadIntroSkipperSegments(List<Guid> itemIds)
     {
         var result = new Dictionary<Guid, Dictionary<string, SegmentRange>>();
 
         if (itemIds.Count == 0 || !File.Exists(_introSkipperDbPath))
         {
-            return result;
+            return [];
         }
 
         var connectionString = new SqliteConnectionStringBuilder

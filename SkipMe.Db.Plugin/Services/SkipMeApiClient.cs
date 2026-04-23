@@ -76,6 +76,7 @@ public class SkipMeApiClient
 
         var results = new List<TResponse?>(requests.Count);
         var client = _httpClientFactory.CreateClient(nameof(SkipMeApiClient));
+        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SkipMe.db", "0.0"));
         var url = new Uri($"{BaseUrl}{endpointPath}");
 
         foreach (var batch in ChunkByMaxRequestSize(requests))

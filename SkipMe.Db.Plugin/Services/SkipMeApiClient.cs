@@ -8,6 +8,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -141,12 +142,13 @@ public class SkipMeApiClient
         var current = new List<TRequest>();
         var currentSize = 2; // []
 
+        JsonSerializerOptions options = new()
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+
         foreach (var request in requests)
         {
-            JsonSerializerOptions options = new()
-            {
-                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-            };
             var itemSize = JsonSerializer.SerializeToUtf8Bytes(request, options).Length;
             if (itemSize + 2 > MaxRequestBytes)
             {

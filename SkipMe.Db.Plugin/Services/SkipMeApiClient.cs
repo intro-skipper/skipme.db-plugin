@@ -143,7 +143,11 @@ public class SkipMeApiClient
 
         foreach (var request in requests)
         {
-            var itemSize = JsonSerializer.SerializeToUtf8Bytes(request).Length;
+            JsonSerializerOptions options = new()
+            {
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            };
+            var itemSize = JsonSerializer.SerializeToUtf8Bytes(request, options).Length;
             if (itemSize + 2 > MaxRequestBytes)
             {
                 throw new InvalidOperationException("A single SkipMe.db batch item exceeds the 100MB request size limit.");

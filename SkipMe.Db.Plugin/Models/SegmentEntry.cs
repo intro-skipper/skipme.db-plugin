@@ -36,7 +36,7 @@ public class SegmentEntry
 
     /// <summary>Gets or sets the episode number.</summary>
     [JsonPropertyName("episode")]
-    public int Episode { get; set; }
+    public int? Episode { get; set; }
 
     /// <summary>Gets or sets the segment type (e.g. "intro", "credits", "recap", "preview", "commercial").</summary>
     [JsonPropertyName("segment")]

@@ -41,7 +41,7 @@ public class SkipMeApiClient
     }
 
     /// <summary>
-    /// Fetches segment timestamps for many movie/episode lookups via <c>POST /v1/movies</c>.
+    /// Fetches segment timestamps for many movie/episode lookups via <c>POST /v1/media</c>.
     /// </summary>
     /// <param name="requests">The lookup requests.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -50,7 +50,7 @@ public class SkipMeApiClient
         IReadOnlyList<MovieLookupRequest> requests,
         CancellationToken cancellationToken)
     {
-        return PostBatchAsync<MovieLookupRequest, MediaResponse>("/v1/movies", requests, cancellationToken);
+        return PostBatchAsync<MovieLookupRequest, MediaResponse>("/v1/media", requests, cancellationToken);
     }
 
     /// <summary>

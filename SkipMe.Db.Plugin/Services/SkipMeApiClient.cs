@@ -26,6 +26,11 @@ public class SkipMeApiClient
     private const string BaseUrl = "https://db.skipme.workers.dev";
     private const int MaxRequestBytes = 100 * 1024 * 1024;
 
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<SkipMeApiClient> _logger;
 
@@ -85,7 +90,7 @@ public class SkipMeApiClient
         {
             try
             {
-                using var response = await client.PostAsJsonAsync(url, batch, cancellationToken).ConfigureAwait(false);
+                using var response = await client.PostAsJsonAsync(url, batch, _jsonOptions, cancellationToken).ConfigureAwait(false);
 
                 if (response.StatusCode == HttpStatusCode.NotFound)
                 {
@@ -142,14 +147,9 @@ public class SkipMeApiClient
         var current = new List<TRequest>();
         var currentSize = 2; // []
 
-        JsonSerializerOptions options = new()
-        {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        };
-
         foreach (var request in requests)
         {
-            var itemSize = JsonSerializer.SerializeToUtf8Bytes(request, options).Length;
+            var itemSize = JsonSerializer.SerializeToUtf8Bytes(request, _jsonOptions).Length;
             if (itemSize + 2 > MaxRequestBytes)
             {
                 throw new InvalidOperationException("A single SkipMe.db batch item exceeds the 100MB request size limit.");

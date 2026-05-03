@@ -35,6 +35,7 @@ public sealed class ShareSubmissionService
     private readonly ILibraryManager _libraryManager;
     private readonly SegmentStore _segmentStore;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly TvMazeClient _tvMazeClient;
     private readonly ILogger<ShareSubmissionService> _logger;
     private readonly string _introSkipperDbPath;
 
@@ -44,18 +45,21 @@ public sealed class ShareSubmissionService
     /// <param name="libraryManager">Jellyfin library manager.</param>
     /// <param name="segmentStore">Local SkipMe segment store.</param>
     /// <param name="httpClientFactory">HTTP client factory.</param>
+    /// <param name="tvMazeClient">TVMaze API client used to fill in missing series IDs.</param>
     /// <param name="applicationPaths">Application path provider.</param>
     /// <param name="logger">Logger.</param>
     public ShareSubmissionService(
         ILibraryManager libraryManager,
         SegmentStore segmentStore,
         IHttpClientFactory httpClientFactory,
+        TvMazeClient tvMazeClient,
         IApplicationPaths applicationPaths,
         ILogger<ShareSubmissionService> logger)
     {
         _libraryManager = libraryManager;
         _segmentStore = segmentStore;
         _httpClientFactory = httpClientFactory;
+        _tvMazeClient = tvMazeClient;
         _logger = logger;
         _introSkipperDbPath = Path.Join(applicationPaths.DataPath, "introskipper", "introskipper.db");
     }
@@ -84,7 +88,8 @@ public sealed class ShareSubmissionService
         var skippedNoSegments = 0;
 
         var movieCandidates = BuildMovieCandidates(filteredMovieIds, disabledMovieIds, ref skippedMissingMetadata);
-        var showCandidates = BuildShowCandidates(filteredSeriesIds, disabledSeriesIds, disabledSeasonIds, enabledSpecialsSeasonIds, ref skippedMissingMetadata);
+        var (showCandidates, showSkippedMissingMetadata) = await BuildShowCandidatesAsync(filteredSeriesIds, disabledSeriesIds, disabledSeasonIds, enabledSpecialsSeasonIds, cancellationToken).ConfigureAwait(false);
+        skippedMissingMetadata += showSkippedMissingMetadata;
 
         var allCandidateItemIds = movieCandidates.Select(m => m.ItemId)
             .Concat(showCandidates.Select(s => s.ItemId))
@@ -250,16 +255,16 @@ public sealed class ShareSubmissionService
         return result;
     }
 
-    private List<ShowCandidate> BuildShowCandidates(
+    private async Task<(List<ShowCandidate> Candidates, int SkippedMissingMetadata)> BuildShowCandidatesAsync(
         HashSet<Guid> filteredSeriesIds,
         HashSet<Guid> disabledSeriesIds,
         HashSet<Guid> disabledSeasonIds,
         HashSet<Guid> enabledSpecialsSeasonIds,
-        ref int skippedMissingMetadata)
+        CancellationToken cancellationToken)
     {
         if (filteredSeriesIds.Count == 0)
         {
-            return [];
+            return ([], 0);
         }
 
         // Scope the query to only the filtered series so we don't scan the entire library.
@@ -274,6 +279,7 @@ public sealed class ShareSubmissionService
             .OfType<Episode>();
 
         var candidates = new List<ShowCandidate>();
+        var skippedMissingMetadata = 0;
 
         foreach (var episode in episodes)
         {
@@ -317,6 +323,27 @@ public sealed class ShareSubmissionService
             var seasonIds = BuildIdentifiers(season);
             var seriesIds = BuildIdentifiers(episode.Series);
 
+            // When the series has no known IDs, try TVMaze to fill in TVDB / IMDb.
+            // The client caches results by Jellyfin series ID, so each series is looked up at most once
+            // regardless of how many seasons or episodes it contains.
+            if (!HasAnySeriesId(seriesIds) && episode.Series is { } series)
+            {
+                var tvMazeIds = await _tvMazeClient.GetShowIdsAsync(
+                    series.Id,
+                    series.Name,
+                    series.ProductionYear,
+                    cancellationToken).ConfigureAwait(false);
+
+                if (tvMazeIds is not null)
+                {
+                    seriesIds = seriesIds with
+                    {
+                        TvdbId = tvMazeIds.TvdbId ?? seriesIds.TvdbId,
+                        ImdbId = tvMazeIds.ImdbId ?? seriesIds.ImdbId,
+                    };
+                }
+            }
+
             var seasonMeta = new SeasonMetadata(
                 seasonId,
                 seasonNumber,
@@ -335,7 +362,7 @@ public sealed class ShareSubmissionService
             candidates.Add(new ShowCandidate(episode.Id, seasonMeta, episodeNumber, durationMs, episodeIds));
         }
 
-        return candidates;
+        return (candidates, skippedMissingMetadata);
     }
 
     private List<SeasonSubmitRequest> BuildSeasonPayload(
@@ -554,6 +581,11 @@ public sealed class ShareSubmissionService
     private static bool HasMovieMatchingStrategy(ProviderIdentifiers ids)
     {
         return ids.TvdbId is not null || ids.ImdbId is not null || ids.TmdbId is not null || ids.AniListId is not null;
+    }
+
+    private static bool HasAnySeriesId(ProviderIdentifiers ids)
+    {
+        return ids.TvdbId is not null || ids.TmdbId is not null || ids.ImdbId is not null || ids.AniListId is not null;
     }
 
     private static bool HasSeasonMatchingStrategy(SeasonMetadata season, ProviderIdentifiers episode)

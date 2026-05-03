@@ -326,7 +326,7 @@ public sealed class ShareSubmissionService
             // When the series has no known IDs, try TVMaze to fill in TVDB / IMDb.
             // The client caches results by Jellyfin series ID, so each series is looked up at most once
             // regardless of how many seasons or episodes it contains.
-            if (!HasAnySeriesId(seriesIds) && episode.Series is { } series)
+            if (!HasMovieMatchingStrategy(seriesIds) && episode.Series is { } series)
             {
                 var tvMazeIds = await _tvMazeClient.GetShowIdsAsync(
                     series.Id,
@@ -581,11 +581,6 @@ public sealed class ShareSubmissionService
     private static bool HasMovieMatchingStrategy(ProviderIdentifiers ids)
     {
         return ids.TvdbId is not null || ids.ImdbId is not null || ids.TmdbId is not null || ids.AniListId is not null;
-    }
-
-    private static bool HasAnySeriesId(ProviderIdentifiers ids)
-    {
-        return ids.TvdbId is not null || ids.TmdbId is not null || ids.ImdbId is not null || ids.AniListId is not null;
     }
 
     private static bool HasSeasonMatchingStrategy(SeasonMetadata season, ProviderIdentifiers episode)

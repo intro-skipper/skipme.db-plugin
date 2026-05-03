@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -73,7 +72,6 @@ public sealed class TvMazeClient
         CancellationToken cancellationToken)
     {
         var client = _httpClientFactory.CreateClient(nameof(TvMazeClient));
-        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SkipMe.db", "0.0"));
 
         var encodedName = Uri.EscapeDataString(seriesName);
         var url = new Uri($"{BaseUrl}/singlesearch/shows?q={encodedName}");

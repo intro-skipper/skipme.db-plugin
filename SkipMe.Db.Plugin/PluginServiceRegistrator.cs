@@ -22,7 +22,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddHttpClient(nameof(SkipMeApiClient));
         serviceCollection.AddSingleton<SkipMeApiClient>();
-        serviceCollection.AddHttpClient(nameof(TvMazeClient));
+        serviceCollection.AddHttpClient(nameof(TvMazeClient))
+            .ConfigureHttpClient(c => c.DefaultRequestHeaders.UserAgent.ParseAdd("SkipMe.db/0.0"));
         serviceCollection.AddSingleton<TvMazeClient>();
         serviceCollection.AddSingleton<SegmentStore>();
         serviceCollection.AddSingleton<ShareSubmissionService>();

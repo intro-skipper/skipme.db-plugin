@@ -451,8 +451,6 @@ public sealed class ShareSubmissionService
     [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities", Justification = "IN-clause placeholders are generated internally and each value is parameterized.")]
     private Dictionary<Guid, IReadOnlyDictionary<string, SegmentRange>> LoadIntroSkipperSegments(List<Guid> itemIds)
     {
-        var result = new Dictionary<Guid, Dictionary<string, SegmentRange>>();
-
         if (itemIds.Count == 0 || !File.Exists(_introSkipperDbPath))
         {
             return [];
@@ -466,6 +464,19 @@ public sealed class ShareSubmissionService
 
         using var connection = new SqliteConnection(connectionString);
         connection.Open();
+
+        // The IsUserProvided column was added in a later version of Intro Skipper.
+        // Check once whether it exists so older databases continue to work.
+        using var checkCol = connection.CreateCommand();
+        checkCol.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DbSegment') WHERE name = 'IsUserProvided'";
+        var hasIsUserProvided = (long)(checkCol.ExecuteScalar() ?? 0L) > 0;
+
+        // Internal tracking dict: segment type -> (range, isUserProvided).
+        // User-provided segments (saved via the segment editor) take priority over
+        // auto-detected ones of the same type.
+        var tracking = new Dictionary<Guid, Dictionary<string, (SegmentRange Range, bool IsUserProvided)>>();
+
+        var selectFields = hasIsUserProvided ? "ItemId, Type, Start, End, IsUserProvided" : "ItemId, Type, Start, End";
 
         const int chunkSize = 400;
         for (var offset = 0; offset < itemIds.Count; offset += chunkSize)
@@ -482,7 +493,7 @@ public sealed class ShareSubmissionService
             }
 
             command.CommandText = $"""
-                SELECT ItemId, Type, Start, End
+                SELECT {selectFields}
                 FROM DbSegment
                 WHERE Type IN (0, 1, 2, 3)
                   AND ItemId IN ({string.Join(",", placeholders)})
@@ -508,21 +519,39 @@ public sealed class ShareSubmissionService
                     continue;
                 }
 
-                if (!result.TryGetValue(itemId, out var perType))
+                var isUserProvided = hasIsUserProvided && !reader.IsDBNull(4) && reader.GetBoolean(4);
+
+                if (!tracking.TryGetValue(itemId, out var perType))
                 {
-                    perType = new Dictionary<string, SegmentRange>(StringComparer.OrdinalIgnoreCase);
-                    result[itemId] = perType;
+                    perType = new Dictionary<string, (SegmentRange Range, bool IsUserProvided)>(StringComparer.OrdinalIgnoreCase);
+                    tracking[itemId] = perType;
                 }
 
-                // Intro Skipper settings pages use the earliest segment per type, so mirror that selection.
-                if (!perType.TryGetValue(segment, out var existing) || startMs < existing.StartMs)
+                var range = new SegmentRange(startMs, endMs);
+
+                if (!perType.TryGetValue(segment, out var existing))
                 {
-                    perType[segment] = new SegmentRange(startMs, endMs);
+                    perType[segment] = (range, isUserProvided);
+                }
+                else if (isUserProvided && !existing.IsUserProvided)
+                {
+                    // Segment-editor entries take priority over auto-detected ones.
+                    perType[segment] = (range, isUserProvided);
+                }
+                else if (isUserProvided == existing.IsUserProvided && startMs < existing.Range.StartMs)
+                {
+                    // Among same-priority segments, keep the earliest (mirrors Intro Skipper's own selection).
+                    perType[segment] = (range, isUserProvided);
                 }
             }
         }
 
-        return result.ToDictionary(k => k.Key, v => (IReadOnlyDictionary<string, SegmentRange>)v.Value);
+        return tracking.ToDictionary(
+            k => k.Key,
+            v => (IReadOnlyDictionary<string, SegmentRange>)v.Value.ToDictionary(
+                kv => kv.Key,
+                kv => kv.Value.Range,
+                StringComparer.OrdinalIgnoreCase));
     }
 
     private static bool TryMapSegmentType(int type, out string segment)

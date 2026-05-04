@@ -831,6 +831,15 @@ function share(): void {
         return;
       }
 
+      // Turn off toggles for all enabled items that were included in the share payload.
+      // Series-level disabling implicitly covers individual season toggles.
+      for (const seriesId of filteredSeriesIds) {
+        shareDisabledSeriesIds.add(seriesId);
+      }
+      for (const movieId of filteredMovieIds) {
+        shareDisabledMovieIds.add(movieId);
+      }
+      renderLibrarySections();
       const message =
         `Shared ${result.SharedSegments} segment(s). ` +
         `Skipped ${result.SkippedAlreadyShared} already shared, ` +

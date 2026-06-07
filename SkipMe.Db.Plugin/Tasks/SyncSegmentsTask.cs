@@ -28,7 +28,6 @@ public class SyncSegmentsTask : IScheduledTask
     private const long SeriesDurationToleranceMs = 5000;
     private const string MediaSegmentScanTaskKey = "TaskExtractMediaSegments";
 
-    private static readonly TimeSpan MinimumSyncInterval = TimeSpan.FromDays(1);
     private static readonly SemaphoreSlim SyncExecutionGate = new(1, 1);
     private static readonly TaskOptions DefaultTaskOptions = new();
 
@@ -97,16 +96,6 @@ public class SyncSegmentsTask : IScheduledTask
 
         try
         {
-            var lastSuccessfulSync = _segmentStore.GetLastSuccessfulSyncUtc();
-            var now = DateTimeOffset.UtcNow;
-            if (lastSuccessfulSync.HasValue && (now - lastSuccessfulSync.Value) < MinimumSyncInterval)
-            {
-                _logger.LogWarning(
-                    "Skipping SkipMe.db sync: exceeding the rate limit of one run per day (last successful run at {LastRunUtc:o}).",
-                    lastSuccessfulSync.Value);
-                return;
-            }
-
             var newSegments = new Dictionary<Guid, List<StoredSegment>>();
 
             var movies = _libraryManager
@@ -121,7 +110,7 @@ public class SyncSegmentsTask : IScheduledTask
 
             var totalItems = movies.Count + allEpisodes.Count;
             var processed = 0;
-            var movieLookups = new List<MovieLookupWorkItem>();
+            var movieLookupMap = new Dictionary<string, MovieLookupWorkItem>(StringComparer.Ordinal);
             var showLookupMap = new Dictionary<string, ShowLookupWorkItem>(StringComparer.Ordinal);
 
             _logger.LogInformation(
@@ -136,7 +125,7 @@ public class SyncSegmentsTask : IScheduledTask
                 var request = BuildMovieLookupRequest(movie);
                 if (request is not null)
                 {
-                    movieLookups.Add(new MovieLookupWorkItem(movie.Id, request));
+                    AddMovieLookup(movieLookupMap, movie.Id, request);
                 }
 
                 processed++;
@@ -169,7 +158,7 @@ public class SyncSegmentsTask : IScheduledTask
                         var request = BuildMovieLookupRequest(episode);
                         if (request is not null)
                         {
-                            movieLookups.Add(new MovieLookupWorkItem(episode.Id, request));
+                            AddMovieLookup(movieLookupMap, episode.Id, request);
                         }
                     }
                 }
@@ -178,29 +167,38 @@ public class SyncSegmentsTask : IScheduledTask
                 ReportProgress(progress, processed, totalItems);
             }
 
+            var movieLookups = movieLookupMap.Values.ToList();
+            _logger.LogInformation(
+                "Querying SkipMe.db with {MovieLookupCount} unique movie/episode fallback lookup(s) and {ShowLookupCount} unique show lookup(s)",
+                movieLookups.Count,
+                showLookupMap.Count);
+
             var movieRequests = movieLookups.Select(w => w.Request).ToList();
-            var movieResponses = await _apiClient.GetByMoviesBatchAsync(movieRequests, cancellationToken).ConfigureAwait(false);
-            for (var i = 0; i < movieLookups.Count && i < movieResponses.Count; i++)
+            var movieResult = await _apiClient.GetByMoviesBatchWithStatusAsync(movieRequests, cancellationToken).ConfigureAwait(false);
+            for (var i = 0; i < movieLookups.Count && i < movieResult.Responses.Count; i++)
             {
-                var response = movieResponses[i];
+                var response = movieResult.Responses[i];
+                var segments = response is null ? new List<StoredSegment>() : BuildStoredSegmentsFromMedia(response);
                 if (response is null)
                 {
                     continue;
                 }
 
-                var segments = BuildStoredSegmentsFromMedia(response);
                 if (segments.Count > 0)
                 {
-                    newSegments[movieLookups[i].ItemId] = segments;
+                    foreach (var itemId in movieLookups[i].ItemIds)
+                    {
+                        newSegments[itemId] = segments;
+                    }
                 }
             }
 
             var showLookups = showLookupMap.Values.ToList();
             var showRequests = showLookups.Select(w => w.Request).ToList();
-            var showResponses = await _apiClient.GetByShowsBatchAsync(showRequests, cancellationToken).ConfigureAwait(false);
-            for (var i = 0; i < showLookups.Count && i < showResponses.Count; i++)
+            var showResult = await _apiClient.GetByShowsBatchWithStatusAsync(showRequests, cancellationToken).ConfigureAwait(false);
+            for (var i = 0; i < showLookups.Count && i < showResult.Responses.Count; i++)
             {
-                var showResponse = showResponses[i];
+                var showResponse = showResult.Responses[i];
                 if (showResponse is null)
                 {
                     continue;
@@ -218,6 +216,12 @@ public class SyncSegmentsTask : IScheduledTask
                         newSegments[episode.ItemId] = segments;
                     }
                 }
+            }
+
+            if (!movieResult.Completed || !showResult.Completed)
+            {
+                _logger.LogWarning("SkipMe.db sync did not complete all remote batches; keeping the existing local segment database intact.");
+                return;
             }
 
             await _segmentStore.ReplaceAllAsync(newSegments).ConfigureAwait(false);
@@ -352,6 +356,28 @@ public class SyncSegmentsTask : IScheduledTask
             Episode = episode,
             DurationMs = durationMs.Value,
         };
+    }
+
+    private static void AddMovieLookup(
+        Dictionary<string, MovieLookupWorkItem> movieLookupMap,
+        Guid itemId,
+        MovieLookupRequest request)
+    {
+        var lookupCacheKey = BuildMovieLookupCacheKey(request);
+        if (!movieLookupMap.TryGetValue(lookupCacheKey, out var workItem))
+        {
+            workItem = new MovieLookupWorkItem(request);
+            movieLookupMap[lookupCacheKey] = workItem;
+        }
+
+        workItem.ItemIds.Add(itemId);
+    }
+
+    private static string BuildMovieLookupCacheKey(MovieLookupRequest request)
+    {
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"tmdb:{request.TmdbId?.ToString(CultureInfo.InvariantCulture) ?? string.Empty}|imdb:{request.ImdbId ?? string.Empty}|tvdb:{request.TvdbId?.ToString(CultureInfo.InvariantCulture) ?? string.Empty}|anilist:{request.AniListId?.ToString(CultureInfo.InvariantCulture) ?? string.Empty}|s:{request.Season?.ToString(CultureInfo.InvariantCulture) ?? string.Empty}|e:{request.Episode?.ToString(CultureInfo.InvariantCulture) ?? string.Empty}|d:{request.DurationMs}");
     }
 
     private static int? TryGetIntProviderId(BaseItem? item, string provider)
@@ -509,7 +535,17 @@ public class SyncSegmentsTask : IScheduledTask
         }
     }
 
-    private sealed record MovieLookupWorkItem(Guid ItemId, MovieLookupRequest Request);
+    private sealed class MovieLookupWorkItem
+    {
+        public MovieLookupWorkItem(MovieLookupRequest request)
+        {
+            Request = request;
+        }
+
+        public MovieLookupRequest Request { get; }
+
+        public List<Guid> ItemIds { get; } = [];
+    }
 
     private sealed class ShowLookupWorkItem
     {

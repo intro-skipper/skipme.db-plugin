@@ -51,7 +51,21 @@ public class SkipMeApiClient
     /// <param name="requests">The lookup requests.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A response list that aligns with the request order.</returns>
-    public Task<IReadOnlyList<MediaResponse?>> GetByMoviesBatchAsync(
+    public async Task<IReadOnlyList<MediaResponse?>> GetByMoviesBatchAsync(
+        IReadOnlyList<MovieLookupRequest> requests,
+        CancellationToken cancellationToken)
+    {
+        var result = await GetByMoviesBatchWithStatusAsync(requests, cancellationToken).ConfigureAwait(false);
+        return result.Responses;
+    }
+
+    /// <summary>
+    /// Fetches segment timestamps for many movie/episode lookups via <c>POST /v1/movies</c>.
+    /// </summary>
+    /// <param name="requests">The lookup requests.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A response list plus whether all batches completed reliably.</returns>
+    internal Task<ApiBatchResult<MediaResponse>> GetByMoviesBatchWithStatusAsync(
         IReadOnlyList<MovieLookupRequest> requests,
         CancellationToken cancellationToken)
     {
@@ -64,24 +78,39 @@ public class SkipMeApiClient
     /// <param name="requests">The lookup requests.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A response list that aligns with the request order.</returns>
-    public Task<IReadOnlyList<SeriesResponse?>> GetByShowsBatchAsync(
+    public async Task<IReadOnlyList<SeriesResponse?>> GetByShowsBatchAsync(
+        IReadOnlyList<ShowLookupRequest> requests,
+        CancellationToken cancellationToken)
+    {
+        var result = await GetByShowsBatchWithStatusAsync(requests, cancellationToken).ConfigureAwait(false);
+        return result.Responses;
+    }
+
+    /// <summary>
+    /// Fetches segment timestamps for many show lookups via <c>POST /v1/shows</c>.
+    /// </summary>
+    /// <param name="requests">The lookup requests.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A response list plus whether all batches completed reliably.</returns>
+    internal Task<ApiBatchResult<SeriesResponse>> GetByShowsBatchWithStatusAsync(
         IReadOnlyList<ShowLookupRequest> requests,
         CancellationToken cancellationToken)
     {
         return PostBatchAsync<ShowLookupRequest, SeriesResponse>("/v1/shows", requests, cancellationToken);
     }
 
-    private async Task<IReadOnlyList<TResponse?>> PostBatchAsync<TRequest, TResponse>(
+    private async Task<ApiBatchResult<TResponse>> PostBatchAsync<TRequest, TResponse>(
         string endpointPath,
         IReadOnlyList<TRequest> requests,
         CancellationToken cancellationToken)
     {
         if (requests.Count == 0)
         {
-            return [];
+            return new ApiBatchResult<TResponse>([], true);
         }
 
         var results = new List<TResponse?>(requests.Count);
+        var completed = true;
         var client = _httpClientFactory.CreateClient(nameof(SkipMeApiClient));
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SkipMe.db", "0.0"));
         var url = new Uri($"{BaseUrl}{endpointPath}");
@@ -101,6 +130,7 @@ public class SkipMeApiClient
 
                 if (!response.IsSuccessStatusCode)
                 {
+                    completed = false;
                     _logger.LogWarning(
                         "SkipMe.db API returned {StatusCode} for {Url}",
                         (int)response.StatusCode,
@@ -121,6 +151,7 @@ public class SkipMeApiClient
                     url,
                     batch.Count,
                     payload.Count);
+                completed = false;
 
                 for (var i = 0; i < batch.Count; i++)
                 {
@@ -131,15 +162,16 @@ public class SkipMeApiClient
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    return results;
+                    return new ApiBatchResult<TResponse>(results, false);
                 }
 
+                completed = false;
                 _logger.LogWarning(ex, "Failed to fetch segments from SkipMe.db API at {Url}", url);
                 results.AddRange(Enumerable.Repeat<TResponse?>(default, batch.Count));
             }
         }
 
-        return results;
+        return new ApiBatchResult<TResponse>(results, completed);
     }
 
     private static IEnumerable<List<TRequest>> ChunkByMaxRequestSize<TRequest>(IReadOnlyList<TRequest> requests)
@@ -174,3 +206,9 @@ public class SkipMeApiClient
         }
     }
 }
+
+/// <summary>
+/// Result of a batch API lookup.
+/// </summary>
+/// <typeparam name="TResponse">Response item type.</typeparam>
+internal sealed record ApiBatchResult<TResponse>(IReadOnlyList<TResponse?> Responses, bool Completed);

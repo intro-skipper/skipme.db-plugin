@@ -207,8 +207,3 @@ public class SkipMeApiClient
     }
 }
 
-/// <summary>
-/// Result of a batch API lookup.
-/// </summary>
-/// <typeparam name="TResponse">Response item type.</typeparam>
-internal sealed record ApiBatchResult<TResponse>(IReadOnlyList<TResponse?> Responses, bool Completed);

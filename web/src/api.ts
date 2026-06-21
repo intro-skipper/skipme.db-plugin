@@ -3,6 +3,7 @@ import type {
   ItemQueryResult,
   LibraryView,
   PluginConfig,
+  SegmentCountResponse,
   ShareSubmitRequest,
   ShareSubmitResponse,
   VirtualFolderInfo,
@@ -157,6 +158,12 @@ export async function shareEnabledItems(payload: ShareSubmitRequest): Promise<Sh
   }
 
   return (await response.json()) as ShareSubmitResponse;
+}
+
+export async function fetchSegmentCounts(): Promise<SegmentCountResponse> {
+  const res = await fetchWithAuth("SkipMeDb/Segments/Counts");
+  if (!res.ok) throw new Error(`Failed to fetch synced segment counts (HTTP ${res.status})`);
+  return (await res.json()) as SegmentCountResponse;
 }
 
 // ── Image URLs ─────────────────────────────────────────────────────────────────

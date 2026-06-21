@@ -45,6 +45,11 @@ export interface ShareSubmitRequest {
   EnabledSpecialsSeasonIds: string[];
 }
 
+export interface SegmentCountResponse {
+  Series: Record<string, number>;
+  Movies: Record<string, number>;
+}
+
 export interface ShareSubmitResponse {
   Ok: boolean;
   SharedSegments: number;

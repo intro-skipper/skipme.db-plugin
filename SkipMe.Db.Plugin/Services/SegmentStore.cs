@@ -128,6 +128,36 @@ public sealed class SegmentStore : IDisposable
     }
 
     /// <summary>
+    /// Returns the number of stored segments for each Jellyfin item that has synced data.
+    /// </summary>
+    /// <returns>Segment counts keyed by Jellyfin item ID.</returns>
+    public IReadOnlyDictionary<Guid, int> GetSegmentCountsByItemId()
+    {
+        _semaphore.Wait();
+        try
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "SELECT ItemId, COUNT(*) FROM Segments GROUP BY ItemId";
+
+            using var reader = cmd.ExecuteReader();
+            var results = new Dictionary<Guid, int>();
+            while (reader.Read())
+            {
+                if (Guid.TryParse(reader.GetString(0), out var itemId))
+                {
+                    results[itemId] = checked((int)reader.GetInt64(1));
+                }
+            }
+
+            return results;
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    /// <summary>
     /// Atomically replaces the entire segment store with a new set of data and persists it to disk.
     /// Called by the sync task after a successful full library scan.
     /// </summary>

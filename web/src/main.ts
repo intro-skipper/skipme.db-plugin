@@ -1,9 +1,16 @@
 import "./styles/main.css";
 
-import type { BaseItem, LibraryView, ShareSubmitRequest, VirtualFolderInfo } from "./types.ts";
+import type {
+  BaseItem,
+  LibraryView,
+  SegmentCountResponse,
+  ShareSubmitRequest,
+  VirtualFolderInfo,
+} from "./types.ts";
 import {
   fetchLibraries,
   fetchMoviesForLibrary,
+  fetchSegmentCounts,
   fetchSeriesForLibrary,
   fetchSeasons,
   fetchVirtualFolders,
@@ -48,6 +55,7 @@ let eventsWired = false;
 let activeTab: "sync" | "share" = "sync";
 let filteredSeriesIds = new Set<string>();
 let filteredMovieIds = new Set<string>();
+let segmentCounts: SegmentCountResponse | null = null;
 
 // ── Share-tab independent state (always defaults to all disabled on page load) ──
 let shareDisabledSeriesIds = new Set<string>();
@@ -386,6 +394,16 @@ function createSeriesCard(series: BaseItem): HTMLElement {
 
   const chevron = createChevron();
 
+  if (segmentCounts) {
+    const count = segmentCounts.Series[series.Id] ?? 0;
+    const countEl = document.createElement("span");
+    countEl.className = "skipme-segment-count";
+    countEl.textContent = String(count);
+    countEl.title = "Currently synced segments";
+    countEl.setAttribute("aria-label", `${count} currently synced segments`);
+    controls.appendChild(countEl);
+  }
+
   // Seasons panel (created before toggle so the toggle's onChange can reference it)
   const seasonsPanel = document.createElement("div");
   seasonsPanel.className = "skipme-seasons-panel";
@@ -508,8 +526,22 @@ function createMovieCard(movie: BaseItem): HTMLElement {
     isDisabled ? "Movie disabled – click to enable" : "Movie enabled – click to disable",
   );
 
+  const controls = document.createElement("div");
+  controls.className = "skipme-movie-controls";
+
+  if (segmentCounts) {
+    const count = segmentCounts.Movies[movie.Id] ?? 0;
+    const countEl = document.createElement("span");
+    countEl.className = "skipme-segment-count";
+    countEl.textContent = String(count);
+    countEl.title = "Currently synced segments";
+    countEl.setAttribute("aria-label", `${count} currently synced segments`);
+    controls.appendChild(countEl);
+  }
+
+  controls.appendChild(tog.element);
   footer.appendChild(nameEl);
-  footer.appendChild(tog.element);
+  footer.appendChild(controls);
   card.appendChild(footer);
 
   return card;
@@ -654,16 +686,18 @@ function init(): void {
   // not yet available) becomes a caught rejection and the finally always runs.
   Promise.resolve()
     .then(async () => {
-      const [config, libraries, virtualFolders] = await Promise.all([
+      const [config, libraries, virtualFolders, syncedCounts] = await Promise.all([
         loadConfig(),
         fetchLibraries().catch(() => [] as LibraryView[]),
         fetchVirtualFolders().catch(() => [] as VirtualFolderInfo[]),
+        fetchSegmentCounts().catch(() => null),
       ]);
 
       disabledSeriesIds = new Set(config.DisabledSeriesIds ?? []);
       disabledSeasonIds = new Set(config.DisabledSeasonIds ?? []);
       disabledMovieIds = new Set(config.DisabledMovieIds ?? []);
       enabledSpecialsSeasonIds = new Set(config.EnabledSpecialsSeasonIds ?? []);
+      segmentCounts = syncedCounts;
       filterQuery = "";
 
       const searchEl = byId<HTMLInputElement>("skipme-search");
@@ -966,6 +1000,7 @@ function mountPage(rootEl: HTMLElement): void {
   activeTab = "sync";
   filteredSeriesIds = new Set();
   filteredMovieIds = new Set();
+  segmentCounts = null;
   seasonCache.clear();
 
   rootEl.innerHTML = buildPageHTML();

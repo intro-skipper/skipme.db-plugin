@@ -87,6 +87,19 @@
     flex-shrink: 0;
 }
 
+.skipme-segment-count {
+    min-width: 1.55em;
+    padding: 0.25em 0.5em;
+    border-radius: 999px;
+    background: rgba(0, 164, 220, 0.82);
+    color: #fff;
+    font-size: 0.72em;
+    font-weight: 700;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+}
+
 /* ── Expand chevron ──────────────────────── */
 .skipme-chevron {
     width: 18px;
@@ -428,8 +441,21 @@
     padding: 6px 8px 8px;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
+    flex: 1;
     gap: 7px;
+}
+
+.skipme-movie-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: auto;
+}
+
+.skipme-movie-controls .skipme-toggle {
+    margin-left: auto;
 }
 
 .skipme-movie-name {

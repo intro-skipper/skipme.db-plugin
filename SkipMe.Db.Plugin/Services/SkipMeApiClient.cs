@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -112,69 +111,123 @@ public class SkipMeApiClient
         var results = new List<TResponse?>(requests.Count);
         var completed = true;
         var client = _httpClientFactory.CreateClient(nameof(SkipMeApiClient));
-        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SkipMe.db", "0.0"));
         var url = new Uri($"{BaseUrl}{endpointPath}");
 
-        foreach (var batch in ChunkByMaxRequestSize(requests))
+        foreach (var batch in ChunkRequests(requests))
         {
-            try
-            {
-                using var response = await client.PostAsJsonAsync(url, batch, _jsonOptions, cancellationToken).ConfigureAwait(false);
-
-                if (response.StatusCode == HttpStatusCode.NotFound)
-                {
-                    _logger.LogDebug("No results found from SkipMe.db API at {Url}", url);
-                    results.AddRange(Enumerable.Repeat<TResponse?>(default, batch.Count));
-                    continue;
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    completed = false;
-                    _logger.LogWarning(
-                        "SkipMe.db API returned {StatusCode} for {Url}",
-                        (int)response.StatusCode,
-                        url);
-                    results.AddRange(Enumerable.Repeat<TResponse?>(default, batch.Count));
-                    continue;
-                }
-
-                var payload = await response.Content.ReadFromJsonAsync<List<TResponse?>>(cancellationToken).ConfigureAwait(false) ?? [];
-                if (payload.Count == batch.Count)
-                {
-                    results.AddRange(payload);
-                    continue;
-                }
-
-                _logger.LogWarning(
-                    "SkipMe.db API response count mismatch for {Url}: expected {ExpectedCount}, got {ActualCount}",
-                    url,
-                    batch.Count,
-                    payload.Count);
-                completed = false;
-
-                for (var i = 0; i < batch.Count; i++)
-                {
-                    results.Add(i < payload.Count ? payload[i] : default);
-                }
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    return new ApiBatchResult<TResponse>(results, false);
-                }
-
-                completed = false;
-                _logger.LogWarning(ex, "Failed to fetch segments from SkipMe.db API at {Url}", url);
-                results.AddRange(Enumerable.Repeat<TResponse?>(default, batch.Count));
-            }
+            var result = await PostBatchWithFallbackAsync<TRequest, TResponse>(client, url, batch, cancellationToken).ConfigureAwait(false);
+            completed &= result.Completed;
+            results.AddRange(result.Responses);
         }
 
         return new ApiBatchResult<TResponse>(results, completed);
     }
 
-    private static IEnumerable<List<TRequest>> ChunkByMaxRequestSize<TRequest>(IReadOnlyList<TRequest> requests)
+    private async Task<ApiBatchResult<TResponse>> PostBatchWithFallbackAsync<TRequest, TResponse>(
+        HttpClient client,
+        Uri url,
+        IReadOnlyList<TRequest> batch,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await PostSingleBatchAsync<TRequest, TResponse>(client, url, batch, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return FailedBatch<TResponse>(batch.Count);
+            }
+
+            if (batch.Count <= 1)
+            {
+                _logger.LogWarning(ex, "Failed to fetch {BatchCount} segment lookup(s) from SkipMe.db API at {Url}", batch.Count, url);
+                return FailedBatch<TResponse>(batch.Count);
+            }
+
+            var midpoint = batch.Count / 2;
+            _logger.LogWarning(
+                ex,
+                "Timed out fetching {BatchCount} segment lookup(s) from SkipMe.db API at {Url}; retrying as {FirstBatchCount} and {SecondBatchCount} lookup batch(es)",
+                batch.Count,
+                url,
+                midpoint,
+                batch.Count - midpoint);
+
+            var first = await PostBatchWithFallbackAsync<TRequest, TResponse>(
+                client,
+                url,
+                batch.Take(midpoint).ToList(),
+                cancellationToken).ConfigureAwait(false);
+            var second = await PostBatchWithFallbackAsync<TRequest, TResponse>(
+                client,
+                url,
+                batch.Skip(midpoint).ToList(),
+                cancellationToken).ConfigureAwait(false);
+
+            return new ApiBatchResult<TResponse>(
+                first.Responses.Concat(second.Responses).ToList(),
+                first.Completed && second.Completed);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch {BatchCount} segment lookup(s) from SkipMe.db API at {Url}", batch.Count, url);
+            return FailedBatch<TResponse>(batch.Count);
+        }
+    }
+
+    private async Task<ApiBatchResult<TResponse>> PostSingleBatchAsync<TRequest, TResponse>(
+        HttpClient client,
+        Uri url,
+        IReadOnlyList<TRequest> batch,
+        CancellationToken cancellationToken)
+    {
+        using var response = await client.PostAsJsonAsync(url, batch, _jsonOptions, cancellationToken).ConfigureAwait(false);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            _logger.LogDebug("No results found from SkipMe.db API at {Url}", url);
+            return new ApiBatchResult<TResponse>(Enumerable.Repeat<TResponse?>(default, batch.Count).ToList(), true);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning(
+                "SkipMe.db API returned {StatusCode} for {Url} while fetching {BatchCount} item(s)",
+                (int)response.StatusCode,
+                url,
+                batch.Count);
+            return FailedBatch<TResponse>(batch.Count);
+        }
+
+        var payload = await response.Content.ReadFromJsonAsync<List<TResponse?>>(cancellationToken).ConfigureAwait(false) ?? [];
+        if (payload.Count == batch.Count)
+        {
+            return new ApiBatchResult<TResponse>(payload, true);
+        }
+
+        _logger.LogWarning(
+            "SkipMe.db API response count mismatch for {Url}: expected {ExpectedCount}, got {ActualCount}",
+            url,
+            batch.Count,
+            payload.Count);
+
+        var results = new List<TResponse?>(batch.Count);
+        for (var i = 0; i < batch.Count; i++)
+        {
+            results.Add(i < payload.Count ? payload[i] : default);
+        }
+
+        return new ApiBatchResult<TResponse>(results, false);
+    }
+
+    private static ApiBatchResult<TResponse> FailedBatch<TResponse>(int count)
+    {
+        return new ApiBatchResult<TResponse>(Enumerable.Repeat<TResponse?>(default, count).ToList(), false);
+    }
+
+    private static IEnumerable<List<TRequest>> ChunkRequests<TRequest>(IReadOnlyList<TRequest> requests)
     {
         var current = new List<TRequest>();
         var currentSize = 2; // []

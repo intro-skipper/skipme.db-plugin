@@ -17,13 +17,25 @@ namespace SkipMe.Db.Plugin;
 /// </summary>
 public class PluginServiceRegistrator : IPluginServiceRegistrator
 {
+    private static readonly TimeSpan SkipMeApiTimeout = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan TvMazeTimeout = TimeSpan.FromSeconds(15);
+
     /// <inheritdoc/>
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
-        serviceCollection.AddHttpClient(nameof(SkipMeApiClient));
+        serviceCollection.AddHttpClient(nameof(SkipMeApiClient))
+            .ConfigureHttpClient(c =>
+            {
+                c.Timeout = SkipMeApiTimeout;
+                c.DefaultRequestHeaders.UserAgent.ParseAdd("SkipMe.db/0.0");
+            });
         serviceCollection.AddSingleton<SkipMeApiClient>();
         serviceCollection.AddHttpClient(nameof(TvMazeClient))
-            .ConfigureHttpClient(c => c.DefaultRequestHeaders.UserAgent.ParseAdd("SkipMe.db/0.0"));
+            .ConfigureHttpClient(c =>
+            {
+                c.Timeout = TvMazeTimeout;
+                c.DefaultRequestHeaders.UserAgent.ParseAdd("SkipMe.db/0.0");
+            });
         serviceCollection.AddSingleton<TvMazeClient>();
         serviceCollection.AddSingleton<SegmentStore>();
         serviceCollection.AddSingleton<ShareSubmissionService>();

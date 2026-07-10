@@ -142,18 +142,25 @@ public class SkipMeApiClient
 
             if (batch.Count <= 1)
             {
-                _logger.LogWarning(ex, "Failed to fetch {BatchCount} segment lookup(s) from SkipMe.db API at {Url}", batch.Count, url);
+                if (_logger.IsEnabled(LogLevel.Warning))
+                {
+                    _logger.LogWarning(ex, "Failed to fetch {BatchCount} segment lookup(s) from SkipMe.db API at {Url}", batch.Count, url);
+                }
+
                 return FailedBatch<TResponse>(batch.Count);
             }
 
             var midpoint = batch.Count / 2;
-            _logger.LogWarning(
-                ex,
-                "Timed out fetching {BatchCount} segment lookup(s) from SkipMe.db API at {Url}; retrying as {FirstBatchCount} and {SecondBatchCount} lookup batch(es)",
-                batch.Count,
-                url,
-                midpoint,
-                batch.Count - midpoint);
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Timed out fetching {BatchCount} segment lookup(s) from SkipMe.db API at {Url}; retrying as {FirstBatchCount} and {SecondBatchCount} lookup batch(es)",
+                    batch.Count,
+                    url,
+                    midpoint,
+                    batch.Count - midpoint);
+            }
 
             var first = await PostBatchWithFallbackAsync<TRequest, TResponse>(
                 client,
@@ -172,7 +179,11 @@ public class SkipMeApiClient
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogWarning(ex, "Failed to fetch {BatchCount} segment lookup(s) from SkipMe.db API at {Url}", batch.Count, url);
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning(ex, "Failed to fetch {BatchCount} segment lookup(s) from SkipMe.db API at {Url}", batch.Count, url);
+            }
+
             return FailedBatch<TResponse>(batch.Count);
         }
     }
@@ -187,17 +198,25 @@ public class SkipMeApiClient
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
-            _logger.LogDebug("No results found from SkipMe.db API at {Url}", url);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("No results found from SkipMe.db API at {Url}", url);
+            }
+
             return new ApiBatchResult<TResponse>(Enumerable.Repeat<TResponse?>(default, batch.Count).ToList(), true);
         }
 
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogWarning(
-                "SkipMe.db API returned {StatusCode} for {Url} while fetching {BatchCount} item(s)",
-                (int)response.StatusCode,
-                url,
-                batch.Count);
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning(
+                    "SkipMe.db API returned {StatusCode} for {Url} while fetching {BatchCount} item(s)",
+                    (int)response.StatusCode,
+                    url,
+                    batch.Count);
+            }
+
             return FailedBatch<TResponse>(batch.Count);
         }
 
@@ -207,11 +226,14 @@ public class SkipMeApiClient
             return new ApiBatchResult<TResponse>(payload, true);
         }
 
-        _logger.LogWarning(
-            "SkipMe.db API response count mismatch for {Url}: expected {ExpectedCount}, got {ActualCount}",
-            url,
-            batch.Count,
-            payload.Count);
+        if (_logger.IsEnabled(LogLevel.Warning))
+        {
+            _logger.LogWarning(
+                "SkipMe.db API response count mismatch for {Url}: expected {ExpectedCount}, got {ActualCount}",
+                url,
+                batch.Count,
+                payload.Count);
+        }
 
         var results = new List<TResponse?>(batch.Count);
         for (var i = 0; i < batch.Count; i++)

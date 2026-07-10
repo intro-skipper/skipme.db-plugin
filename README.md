@@ -10,8 +10,8 @@ timestamps back to SkipMe.db.
 
 ## Requirements
 
-- Jellyfin 10.11.5 or newer compatible 10.11 builds
-- .NET 9 runtime support on the Jellyfin host
+- Jellyfin 12.0.0-rc2 or newer compatible 12 builds
+- .NET 10 runtime support on the Jellyfin host
 - Network access from Jellyfin to:
   - `https://db.skipme.workers.dev`
   - `https://api.tvmaze.com` when sharing show timestamps that need missing
@@ -97,7 +97,7 @@ had no local Intro Skipper timestamps.
 
 Prerequisites:
 
-- .NET SDK 9.x
+- .NET SDK 10.x
 - Node.js 22.x
 - npm
 
@@ -113,7 +113,7 @@ The web settings UI is built automatically during the .NET build and embedded in
 the plugin assembly. The release DLL is written to:
 
 ```text
-SkipMe.Db.Plugin/bin/Release/net9.0/SkipMe.Db.Plugin.dll
+SkipMe.Db.Plugin/bin/Release/net10.0/SkipMe.Db.Plugin.dll
 ```
 
 For front-end-only development:

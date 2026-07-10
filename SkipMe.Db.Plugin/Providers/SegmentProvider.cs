@@ -69,22 +69,36 @@ public class SegmentProvider : IMediaSegmentProvider
 
         if (IsItemDisabled(request.ItemId))
         {
-            _logger.LogDebug(
-                "Segments suppressed for item {ItemId} — series or season is disabled in configuration",
-                request.ItemId);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(
+                    "Segments suppressed for item {ItemId} — series or season is disabled in configuration",
+                    request.ItemId);
+            }
+
             return Task.FromResult<IReadOnlyList<MediaSegmentDto>>([]);
         }
 
         var storedSegments = _segmentStore.GetSegments(request.ItemId);
         if (storedSegments is null)
         {
-            _logger.LogDebug(
-                "No segments in local store for item {ItemId} — run the sync task to populate",
-                request.ItemId);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(
+                    "No segments in local store for item {ItemId} — run the sync task to populate",
+                    request.ItemId);
+            }
+
             return Task.FromResult<IReadOnlyList<MediaSegmentDto>>([]);
         }
 
         return Task.FromResult<IReadOnlyList<MediaSegmentDto>>(BuildSegments(request.ItemId, storedSegments));
+    }
+
+    /// <inheritdoc/>
+    public Task CleanupExtractedData(Guid itemId, CancellationToken cancellationToken)
+    {
+        return _segmentStore.DeleteSegmentsAsync(itemId, cancellationToken);
     }
 
     private List<MediaSegmentDto> BuildSegments(Guid itemId, IReadOnlyList<StoredSegment> storedSegments)
@@ -95,7 +109,11 @@ public class SegmentProvider : IMediaSegmentProvider
         {
             if (!SegmentTypeMappings.TryGetValue(entry.Type, out var segmentType))
             {
-                _logger.LogDebug("Unknown segment type '{SegmentType}' — skipping", entry.Type);
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("Unknown segment type '{SegmentType}' — skipping", entry.Type);
+                }
+
                 continue;
             }
 

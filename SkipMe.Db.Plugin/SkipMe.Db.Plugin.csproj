@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>SkipMe.Db.Plugin</RootNamespace>
     <AssemblyName>SkipMe.Db.Plugin</AssemblyName>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -28,9 +28,14 @@
   </Target>
 
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.5" />
-    <PackageReference Include="Jellyfin.Model" Version="10.11.5" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.4" />
+    <PackageReference Include="Jellyfin.Controller" Version="12.0.0-rc2">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+    <PackageReference Include="Jellyfin.Model" Version="12.0.0-rc2">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
   </ItemGroup>
 
   <ItemGroup>

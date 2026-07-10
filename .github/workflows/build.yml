@@ -60,5 +60,5 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: SkipMe.Db.Plugin-${{ env.GIT_HASH }}.dll
-          path: SkipMe.Db.Plugin/bin/Release/net9.0/SkipMe.Db.Plugin.dll
+          path: SkipMe.Db.Plugin/bin/Release/net10.0/SkipMe.Db.Plugin.dll
           if-no-files-found: error

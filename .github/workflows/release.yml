@@ -112,7 +112,7 @@ jobs:
         run: dotnet build SkipMe.Db.Plugin.sln --configuration Release --no-restore
 
       - name: Package release artifact
-        run: zip -j "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" SkipMe.Db.Plugin/bin/Release/net9.0/SkipMe.Db.Plugin.dll
+        run: zip -j "SkipMe.db-plugin-${{ env.RELEASE_TAG }}.zip" SkipMe.Db.Plugin/bin/Release/net10.0/SkipMe.Db.Plugin.dll
 
       - name: Publish release
         env:

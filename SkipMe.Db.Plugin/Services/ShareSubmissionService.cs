@@ -644,7 +644,11 @@ public sealed class ShareSubmissionService
                 throw;
             }
 
-            _logger.LogWarning(ex, "Share submission failed for {Path}", path);
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning(ex, "Share submission failed for {Path}", path);
+            }
+
             return new SubmitResult(false, 0, ex.Message);
         }
     }

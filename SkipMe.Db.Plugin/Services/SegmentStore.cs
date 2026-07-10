@@ -58,11 +58,17 @@ public sealed class SegmentStore : IDisposable
             try
             {
                 File.Move(oldDbPath, newDbPath);
-                _logger.LogInformation("Migrated segment database to {Path}", newDbPath);
+                if (_logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation("Migrated segment database to {Path}", newDbPath);
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                _logger.LogWarning(ex, "Failed to migrate segment database from {OldPath} to {NewPath}", oldDbPath, newDbPath);
+                if (_logger.IsEnabled(LogLevel.Warning))
+                {
+                    _logger.LogWarning(ex, "Failed to migrate segment database from {OldPath} to {NewPath}", oldDbPath, newDbPath);
+                }
             }
         }
 
@@ -72,11 +78,17 @@ public sealed class SegmentStore : IDisposable
             try
             {
                 File.Delete(oldJsonPath);
-                _logger.LogInformation("Removed obsolete JSON segment store at {Path}", oldJsonPath);
+                if (_logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation("Removed obsolete JSON segment store at {Path}", oldJsonPath);
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                _logger.LogWarning(ex, "Failed to remove obsolete JSON segment store at {Path}", oldJsonPath);
+                if (_logger.IsEnabled(LogLevel.Warning))
+                {
+                    _logger.LogWarning(ex, "Failed to remove obsolete JSON segment store at {Path}", oldJsonPath);
+                }
             }
         }
 
@@ -158,6 +170,28 @@ public sealed class SegmentStore : IDisposable
     }
 
     /// <summary>
+    /// Removes stored segments for a single Jellyfin item.
+    /// </summary>
+    /// <param name="itemId">The Jellyfin item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the item rows have been removed.</returns>
+    public async Task DeleteSegmentsAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM Segments WHERE ItemId = @itemId";
+            cmd.Parameters.AddWithValue("@itemId", itemId.ToString());
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    /// <summary>
     /// Atomically replaces the entire segment store with a new set of data and persists it to disk.
     /// Called by the sync task after a successful full library scan.
     /// </summary>
@@ -205,9 +239,12 @@ public sealed class SegmentStore : IDisposable
                     }
 
                     await dbTx.CommitAsync().ConfigureAwait(false);
-                    _logger.LogInformation(
-                        "Saved segments for {Count} item(s) to segment database",
-                        newSegments.Count);
+                    if (_logger.IsEnabled(LogLevel.Information))
+                    {
+                        _logger.LogInformation(
+                            "Saved segments for {Count} item(s) to segment database",
+                            newSegments.Count);
+                    }
                 }
                 catch
                 {

@@ -82,10 +82,14 @@ public sealed class TvMazeClient
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogDebug(
-                    "TVMaze lookup returned {StatusCode} for show '{SeriesName}'",
-                    (int)response.StatusCode,
-                    seriesName);
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug(
+                        "TVMaze lookup returned {StatusCode} for show '{SeriesName}'",
+                        (int)response.StatusCode,
+                        seriesName);
+                }
+
                 return null;
             }
 
@@ -101,11 +105,15 @@ public sealed class TvMazeClient
                 && int.TryParse(premiered.AsSpan(0, 4), out var premiereYear)
                 && Math.Abs(premiereYear - productionYear.Value) > 1)
             {
-                _logger.LogDebug(
-                    "TVMaze result for '{SeriesName}' premiered in {PremiereYear}, expected ~{ProductionYear} — skipping",
-                    seriesName,
-                    premiereYear,
-                    productionYear.Value);
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug(
+                        "TVMaze result for '{SeriesName}' premiered in {PremiereYear}, expected ~{ProductionYear} — skipping",
+                        seriesName,
+                        premiereYear,
+                        productionYear.Value);
+                }
+
                 return null;
             }
 
@@ -117,11 +125,15 @@ public sealed class TvMazeClient
                 return null;
             }
 
-            _logger.LogDebug(
-                "TVMaze resolved '{SeriesName}': tvdb={TvdbId}, imdb={ImdbId}",
-                seriesName,
-                tvdbId,
-                imdbId);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(
+                    "TVMaze resolved '{SeriesName}': tvdb={TvdbId}, imdb={ImdbId}",
+                    seriesName,
+                    tvdbId,
+                    imdbId);
+            }
+
             return new TvMazeShowIds(tvdbId, imdbId);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
@@ -131,7 +143,11 @@ public sealed class TvMazeClient
                 return null;
             }
 
-            _logger.LogWarning(ex, "Failed to look up '{SeriesName}' on TVMaze", seriesName);
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning(ex, "Failed to look up '{SeriesName}' on TVMaze", seriesName);
+            }
+
             return null;
         }
     }

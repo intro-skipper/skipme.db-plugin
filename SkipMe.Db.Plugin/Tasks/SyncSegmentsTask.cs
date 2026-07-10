@@ -113,10 +113,13 @@ public class SyncSegmentsTask : IScheduledTask
             var movieLookupMap = new Dictionary<string, MovieLookupWorkItem>(StringComparer.Ordinal);
             var showLookupMap = new Dictionary<string, ShowLookupWorkItem>(StringComparer.Ordinal);
 
-            _logger.LogInformation(
-                "Starting SkipMe.db sync for {MovieCount} movie(s) and {EpisodeCount} episode(s)",
-                movies.Count,
-                allEpisodes.Count);
+            if (_logger.IsEnabled(LogLevel.Information))
+            {
+                _logger.LogInformation(
+                    "Starting SkipMe.db sync for {MovieCount} movie(s) and {EpisodeCount} episode(s)",
+                    movies.Count,
+                    allEpisodes.Count);
+            }
 
             foreach (var movie in movies)
             {
@@ -168,10 +171,13 @@ public class SyncSegmentsTask : IScheduledTask
             }
 
             var movieLookups = movieLookupMap.Values.ToList();
-            _logger.LogInformation(
-                "Querying SkipMe.db with {MovieLookupCount} unique movie/episode fallback lookup(s) and {ShowLookupCount} unique show lookup(s)",
-                movieLookups.Count,
-                showLookupMap.Count);
+            if (_logger.IsEnabled(LogLevel.Information))
+            {
+                _logger.LogInformation(
+                    "Querying SkipMe.db with {MovieLookupCount} unique movie/episode fallback lookup(s) and {ShowLookupCount} unique show lookup(s)",
+                    movieLookups.Count,
+                    showLookupMap.Count);
+            }
 
             var movieRequests = movieLookups.Select(w => w.Request).ToList();
             var movieResult = await _apiClient.GetByMoviesBatchWithStatusAsync(movieRequests, cancellationToken).ConfigureAwait(false);
@@ -227,10 +233,13 @@ public class SyncSegmentsTask : IScheduledTask
             await _segmentStore.ReplaceAllAsync(newSegments).ConfigureAwait(false);
             await _segmentStore.SetLastSuccessfulSyncUtcAsync(DateTimeOffset.UtcNow).ConfigureAwait(false);
 
-            _logger.LogInformation(
-                "SkipMe.db sync complete. Stored segments for {StoredCount} of {TotalItems} item(s).",
-                newSegments.Count,
-                totalItems);
+            if (_logger.IsEnabled(LogLevel.Information))
+            {
+                _logger.LogInformation(
+                    "SkipMe.db sync complete. Stored segments for {StoredCount} of {TotalItems} item(s).",
+                    newSegments.Count,
+                    totalItems);
+            }
 
             TriggerMediaSegmentScan();
         }
@@ -247,13 +256,21 @@ public class SyncSegmentsTask : IScheduledTask
 
         if (worker is null)
         {
-            _logger.LogWarning(
-                "Could not find scheduled task with key '{TaskKey}' — media segment scan will not be triggered",
-                MediaSegmentScanTaskKey);
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning(
+                    "Could not find scheduled task with key '{TaskKey}' — media segment scan will not be triggered",
+                    MediaSegmentScanTaskKey);
+            }
+
             return;
         }
 
-        _logger.LogInformation("Queuing Jellyfin media segment scan ('{TaskKey}')", MediaSegmentScanTaskKey);
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation("Queuing Jellyfin media segment scan ('{TaskKey}')", MediaSegmentScanTaskKey);
+        }
+
         _taskManager.QueueScheduledTask(worker.ScheduledTask, DefaultTaskOptions);
     }
 
@@ -308,7 +325,11 @@ public class SyncSegmentsTask : IScheduledTask
         var durationMs = GetDurationMs(item);
         if (durationMs is null)
         {
-            _logger.LogDebug("Duration unknown for item {ItemId}, skipping movies endpoint", item.Id);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("Duration unknown for item {ItemId}, skipping movies endpoint", item.Id);
+            }
+
             return null;
         }
 
@@ -342,7 +363,11 @@ public class SyncSegmentsTask : IScheduledTask
 
         if (tmdbId is null && tvdbId is null && aniListId is null && imdbId is null)
         {
-            _logger.LogDebug("No supported provider ID found for item {ItemId}, skipping", item.Id);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("No supported provider ID found for item {ItemId}, skipping", item.Id);
+            }
+
             return null;
         }
 

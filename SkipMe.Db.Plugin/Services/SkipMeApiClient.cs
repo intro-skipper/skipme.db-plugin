@@ -198,6 +198,35 @@ public class SkipMeApiClient
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
+            if (batch.Count > 1)
+            {
+                var midpoint = batch.Count / 2;
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug(
+                        "SkipMe.db API returned 404 for batch of {BatchCount} item(s) at {Url}; splitting into batches of {FirstBatchCount} and {SecondBatchCount}",
+                        batch.Count,
+                        url,
+                        midpoint,
+                        batch.Count - midpoint);
+                }
+
+                var first = await PostBatchWithFallbackAsync<TRequest, TResponse>(
+                    client,
+                    url,
+                    batch.Take(midpoint).ToList(),
+                    cancellationToken).ConfigureAwait(false);
+                var second = await PostBatchWithFallbackAsync<TRequest, TResponse>(
+                    client,
+                    url,
+                    batch.Skip(midpoint).ToList(),
+                    cancellationToken).ConfigureAwait(false);
+
+                return new ApiBatchResult<TResponse>(
+                    first.Responses.Concat(second.Responses).ToList(),
+                    first.Completed && second.Completed);
+            }
+
             if (_logger.IsEnabled(LogLevel.Debug))
             {
                 _logger.LogDebug("No results found from SkipMe.db API at {Url}", url);

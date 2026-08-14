@@ -3,12 +3,14 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -198,6 +200,46 @@ public class SkipMeApiClient
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (TryParseMissingIndexes(errorBody, batch.Count, out var missingSet))
+            {
+                if (missingSet.Count == batch.Count)
+                {
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                    {
+                        _logger.LogDebug("No results found from SkipMe.db API at {Url}", url);
+                    }
+
+                    return new ApiBatchResult<TResponse>(Enumerable.Repeat<TResponse?>(default, batch.Count).ToList(), true);
+                }
+
+                var validIndices = Enumerable.Range(0, batch.Count).Where(i => !missingSet.Contains(i)).ToList();
+                var filteredBatch = validIndices.Select(i => batch[i]).ToList();
+
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug(
+                        "SkipMe.db API reported {MissingCount} of {TotalCount} item(s) missing at {Url}; re-querying {FoundCount} candidate item(s)",
+                        missingSet.Count,
+                        batch.Count,
+                        url,
+                        filteredBatch.Count);
+                }
+
+                using var retryResponse = await client.PostAsJsonAsync(url, filteredBatch, _jsonOptions, cancellationToken).ConfigureAwait(false);
+                if (retryResponse.IsSuccessStatusCode)
+                {
+                    var payload = await retryResponse.Content.ReadFromJsonAsync<List<TResponse?>>(cancellationToken).ConfigureAwait(false) ?? [];
+                    var fullResults = new List<TResponse?>(Enumerable.Repeat<TResponse?>(default, batch.Count));
+                    for (var i = 0; i < validIndices.Count && i < payload.Count; i++)
+                    {
+                        fullResults[validIndices[i]] = payload[i];
+                    }
+
+                    return new ApiBatchResult<TResponse>(fullResults, true);
+                }
+            }
+
             if (batch.Count > 1)
             {
                 var midpoint = batch.Count / 2;
@@ -272,6 +314,59 @@ public class SkipMeApiClient
 
         return new ApiBatchResult<TResponse>(results, false);
     }
+
+    internal static bool TryParseMissingIndexes(string errorBody, int batchCount, out HashSet<int> missingIndexes)
+    {
+        missingIndexes = [];
+        if (string.IsNullOrWhiteSpace(errorBody))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(errorBody);
+            if (!doc.RootElement.TryGetProperty("error", out var errorElement))
+            {
+                return false;
+            }
+
+            var errorText = errorElement.GetString();
+            if (string.IsNullOrWhiteSpace(errorText))
+            {
+                return false;
+            }
+
+            var match = MissingIndexesRegex.Match(errorText);
+            if (!match.Success)
+            {
+                return false;
+            }
+
+            var parts = match.Groups[1].Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var part in parts)
+            {
+                if (int.TryParse(part, CultureInfo.InvariantCulture, out var index) && index >= 0 && index < batchCount)
+                {
+                    missingIndexes.Add(index);
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            return missingIndexes.Count > 0;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static readonly Regex MissingIndexesRegex = new(
+        @"item indexes:\s*([\d,\s]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static ApiBatchResult<TResponse> FailedBatch<TResponse>(int count)
     {

@@ -12,6 +12,10 @@
     <CodeAnalysisRuleSet>../jellyfin.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="SkipMe.Db.Plugin.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <NpmCommand Condition="'$(OS)' == 'Windows_NT'">npm.cmd</NpmCommand>
     <NpmCommand Condition="'$(OS)' != 'Windows_NT'">npm</NpmCommand>

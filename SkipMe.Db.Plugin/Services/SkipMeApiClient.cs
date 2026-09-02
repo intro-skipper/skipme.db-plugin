@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -196,16 +195,6 @@ public class SkipMeApiClient
     {
         using var response = await client.PostAsJsonAsync(url, batch, _jsonOptions, cancellationToken).ConfigureAwait(false);
 
-        if (response.StatusCode == HttpStatusCode.NotFound)
-        {
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                _logger.LogDebug("No results found from SkipMe.db API at {Url}", url);
-            }
-
-            return new ApiBatchResult<TResponse>(Enumerable.Repeat<TResponse?>(default, batch.Count).ToList(), true);
-        }
-
         if (!response.IsSuccessStatusCode)
         {
             if (_logger.IsEnabled(LogLevel.Warning))
@@ -221,9 +210,10 @@ public class SkipMeApiClient
         }
 
         var payload = await response.Content.ReadFromJsonAsync<List<TResponse?>>(cancellationToken).ConfigureAwait(false) ?? [];
+        var normalizedPayload = payload.Select(NormalizeEmptyResponse).ToList();
         if (payload.Count == batch.Count)
         {
-            return new ApiBatchResult<TResponse>(payload, true);
+            return new ApiBatchResult<TResponse>(normalizedPayload, true);
         }
 
         if (_logger.IsEnabled(LogLevel.Warning))
@@ -238,7 +228,7 @@ public class SkipMeApiClient
         var results = new List<TResponse?>(batch.Count);
         for (var i = 0; i < batch.Count; i++)
         {
-            results.Add(i < payload.Count ? payload[i] : default);
+            results.Add(i < normalizedPayload.Count ? normalizedPayload[i] : default);
         }
 
         return new ApiBatchResult<TResponse>(results, false);
@@ -247,6 +237,19 @@ public class SkipMeApiClient
     private static ApiBatchResult<TResponse> FailedBatch<TResponse>(int count)
     {
         return new ApiBatchResult<TResponse>(Enumerable.Repeat<TResponse?>(default, count).ToList(), false);
+    }
+
+    private static TResponse? NormalizeEmptyResponse<TResponse>(TResponse? response)
+    {
+        return response switch
+        {
+            MediaResponse media when media.Intro.Count == 0
+                && media.Recap.Count == 0
+                && media.Credits.Count == 0
+                && media.Preview.Count == 0 => default,
+            SeriesResponse series when series.Segments.Count == 0 => default,
+            _ => response,
+        };
     }
 
     private static IEnumerable<List<TRequest>> ChunkRequests<TRequest>(IReadOnlyList<TRequest> requests)

@@ -162,7 +162,7 @@ export async function shareEnabledItems(payload: ShareSubmitRequest): Promise<Sh
 
 export async function fetchSegmentCounts(): Promise<SegmentCountResponse> {
   const res = await fetchWithAuth("SkipMeDb/Segments/Counts");
-  if (!res.ok) throw new Error(`Failed to fetch synced segment counts (HTTP ${res.status})`);
+  if (!res.ok) throw new Error(`Failed to fetch segment counts (HTTP ${res.status})`);
   return (await res.json()) as SegmentCountResponse;
 }
 

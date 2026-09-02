@@ -15,4 +15,10 @@ public sealed class SegmentCountResponse
 
     /// <summary>Gets the segment counts for movies.</summary>
     public Dictionary<string, int> Movies { get; init; } = [];
+
+    /// <summary>Gets the unshared Intro Skipper segment counts for series, including all episodes.</summary>
+    public Dictionary<string, int> ShareableSeries { get; init; } = [];
+
+    /// <summary>Gets the unshared Intro Skipper segment counts for movies.</summary>
+    public Dictionary<string, int> ShareableMovies { get; init; } = [];
 }

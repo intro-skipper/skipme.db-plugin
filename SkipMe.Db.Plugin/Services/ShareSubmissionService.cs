@@ -199,6 +199,60 @@ public sealed class ShareSubmissionService
         };
     }
 
+    /// <summary>
+    /// Gets valid, canonical Intro Skipper timestamps that have not already been shared,
+    /// grouped by Jellyfin item ID.
+    /// </summary>
+    /// <returns>Shareable timestamp counts keyed by Jellyfin item ID.</returns>
+    public IReadOnlyDictionary<Guid, int> GetShareableSegmentCountsByItemId()
+    {
+        if (!File.Exists(_introSkipperDbPath))
+        {
+            return new Dictionary<Guid, int>();
+        }
+
+        var items = _libraryManager
+            .GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = [Jellyfin.Data.Enums.BaseItemKind.Movie, Jellyfin.Data.Enums.BaseItemKind.Episode],
+                IsVirtualItem = false,
+                Recursive = true,
+            })
+            .Where(item => item is Movie or Episode)
+            .ToDictionary(item => item.Id);
+
+        if (items.Count == 0)
+        {
+            return new Dictionary<Guid, int>();
+        }
+
+        var introSegments = LoadIntroSkipperSegments([.. items.Keys]);
+        var candidates = new List<SharedUploadTimestamp>();
+
+        foreach (var (itemId, segments) in introSegments)
+        {
+            if (!items.TryGetValue(itemId, out var item) || !TryGetDurationMs(item, out var durationMs))
+            {
+                continue;
+            }
+
+            foreach (var (segment, range) in segments)
+            {
+                candidates.Add(new SharedUploadTimestamp(
+                    itemId,
+                    segment,
+                    range.StartMs,
+                    range.EndMs,
+                    durationMs));
+            }
+        }
+
+        return _segmentStore
+            .GetUnsharedTimestamps(candidates)
+            .GroupBy(timestamp => timestamp.ItemId)
+            .ToDictionary(group => group.Key, group => group.Count());
+    }
+
     private static HashSet<Guid> ParseGuidSet(IEnumerable<string>? raw)
     {
         var result = new HashSet<Guid>();

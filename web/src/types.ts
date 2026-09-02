@@ -48,6 +48,8 @@ export interface ShareSubmitRequest {
 export interface SegmentCountResponse {
   Series: Record<string, number>;
   Movies: Record<string, number>;
+  ShareableSeries: Record<string, number>;
+  ShareableMovies: Record<string, number>;
 }
 
 export interface ShareSubmitResponse {

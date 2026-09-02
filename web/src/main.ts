@@ -57,6 +57,21 @@ let filteredSeriesIds = new Set<string>();
 let filteredMovieIds = new Set<string>();
 let segmentCounts: SegmentCountResponse | null = null;
 
+function getDisplayedSegmentCount(
+  itemId: string,
+  kind: "series" | "movie",
+): { count: number; label: string } | null {
+  if (!segmentCounts) return null;
+
+  if (activeTab === "share") {
+    const counts = kind === "series" ? segmentCounts.ShareableSeries : segmentCounts.ShareableMovies;
+    return { count: counts[itemId] ?? 0, label: "Segments available to share" };
+  }
+
+  const counts = kind === "series" ? segmentCounts.Series : segmentCounts.Movies;
+  return { count: counts[itemId] ?? 0, label: "Currently synced segments" };
+}
+
 // ── Share-tab independent state (always defaults to all disabled on page load) ──
 let shareDisabledSeriesIds = new Set<string>();
 let shareDisabledSeasonIds = new Set<string>();
@@ -394,13 +409,13 @@ function createSeriesCard(series: BaseItem): HTMLElement {
 
   const chevron = createChevron();
 
-  if (segmentCounts) {
-    const count = segmentCounts.Series[series.Id] ?? 0;
+  const displayedCount = getDisplayedSegmentCount(series.Id, "series");
+  if (displayedCount) {
     const countEl = document.createElement("span");
     countEl.className = "skipme-segment-count";
-    countEl.textContent = String(count);
-    countEl.title = "Currently synced segments";
-    countEl.setAttribute("aria-label", `${count} currently synced segments`);
+    countEl.textContent = String(displayedCount.count);
+    countEl.title = displayedCount.label;
+    countEl.setAttribute("aria-label", `${displayedCount.count} ${displayedCount.label.toLowerCase()}`);
     controls.appendChild(countEl);
   }
 
@@ -529,13 +544,13 @@ function createMovieCard(movie: BaseItem): HTMLElement {
   const controls = document.createElement("div");
   controls.className = "skipme-movie-controls";
 
-  if (segmentCounts) {
-    const count = segmentCounts.Movies[movie.Id] ?? 0;
+  const displayedCount = getDisplayedSegmentCount(movie.Id, "movie");
+  if (displayedCount) {
     const countEl = document.createElement("span");
     countEl.className = "skipme-segment-count";
-    countEl.textContent = String(count);
-    countEl.title = "Currently synced segments";
-    countEl.setAttribute("aria-label", `${count} currently synced segments`);
+    countEl.textContent = String(displayedCount.count);
+    countEl.title = displayedCount.label;
+    countEl.setAttribute("aria-label", `${displayedCount.count} ${displayedCount.label.toLowerCase()}`);
     controls.appendChild(countEl);
   }
 
@@ -858,7 +873,7 @@ function share(): void {
   };
 
   shareEnabledItems(payload)
-    .then((result) => {
+    .then(async (result) => {
       if (!result.Ok && !result.SharedSegments) {
         const suffix = result.Error ? ` ${result.Error}` : "";
         setStatus(`Share failed.${suffix}`, "err");
@@ -872,6 +887,11 @@ function share(): void {
       }
       for (const movieId of filteredMovieIds) {
         shareDisabledMovieIds.add(movieId);
+      }
+
+      const refreshedCounts = await fetchSegmentCounts().catch(() => null);
+      if (refreshedCounts) {
+        segmentCounts = refreshedCounts;
       }
       renderLibrarySections();
       const message =

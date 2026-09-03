@@ -184,12 +184,13 @@ public class SyncSegmentsTask : IScheduledTask
             for (var i = 0; i < movieLookups.Count && i < movieResult.Responses.Count; i++)
             {
                 var response = movieResult.Responses[i];
-                var segments = response is null ? new List<StoredSegment>() : BuildStoredSegmentsFromMedia(response);
                 if (response is null)
                 {
+                    // A null response is a valid no-result item; continue processing the rest of the batch.
                     continue;
                 }
 
+                var segments = BuildStoredSegmentsFromMedia(response);
                 if (segments.Count > 0)
                 {
                     foreach (var itemId in movieLookups[i].ItemIds)

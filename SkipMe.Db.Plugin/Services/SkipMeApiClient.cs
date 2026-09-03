@@ -212,6 +212,7 @@ public class SkipMeApiClient
         var payload = await response.Content.ReadFromJsonAsync<List<TResponse?>>(cancellationToken).ConfigureAwait(false) ?? [];
         if (payload.Count == batch.Count)
         {
+            // Null entries represent valid no-result lookups and retain their position in the batch.
             return new ApiBatchResult<TResponse>(payload, true);
         }
 

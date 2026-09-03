@@ -166,6 +166,12 @@ export async function fetchSegmentCounts(): Promise<SegmentCountResponse> {
   return (await res.json()) as SegmentCountResponse;
 }
 
+export async function fetchShareableSegmentCounts(): Promise<SegmentCountResponse> {
+  const res = await fetchWithAuth("SkipMeDb/Share/Counts");
+  if (!res.ok) throw new Error(`Failed to fetch shareable segment counts (HTTP ${res.status})`);
+  return (await res.json()) as SegmentCountResponse;
+}
+
 // ── Image URLs ─────────────────────────────────────────────────────────────────
 /**
  * Returns a Jellyfin image URL for the given item ID.

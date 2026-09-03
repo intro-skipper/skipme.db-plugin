@@ -10,6 +10,7 @@ import type {
 import {
   fetchLibraries,
   fetchMoviesForLibrary,
+  fetchShareableSegmentCounts,
   fetchSegmentCounts,
   fetchSeriesForLibrary,
   fetchSeasons,
@@ -55,21 +56,23 @@ let eventsWired = false;
 let activeTab: "sync" | "share" = "sync";
 let filteredSeriesIds = new Set<string>();
 let filteredMovieIds = new Set<string>();
-let segmentCounts: SegmentCountResponse | null = null;
+let syncedSegmentCounts: SegmentCountResponse | null = null;
+let shareableSegmentCounts: SegmentCountResponse | null = null;
 
 function getDisplayedSegmentCount(
   itemId: string,
   kind: "series" | "movie",
 ): { count: number; label: string } | null {
-  if (!segmentCounts) return null;
+  const counts = activeTab === "share" ? shareableSegmentCounts : syncedSegmentCounts;
+  if (!counts) return null;
 
   if (activeTab === "share") {
-    const counts = kind === "series" ? segmentCounts.ShareableSeries : segmentCounts.ShareableMovies;
-    return { count: counts[itemId] ?? 0, label: "Segments available to share" };
+    const shareCounts = kind === "series" ? counts.Series : counts.Movies;
+    return { count: shareCounts[itemId] ?? 0, label: "Segments available to share" };
   }
 
-  const counts = kind === "series" ? segmentCounts.Series : segmentCounts.Movies;
-  return { count: counts[itemId] ?? 0, label: "Currently synced segments" };
+  const syncedCounts = kind === "series" ? counts.Series : counts.Movies;
+  return { count: syncedCounts[itemId] ?? 0, label: "Currently synced segments" };
 }
 
 // ── Share-tab independent state (always defaults to all disabled on page load) ──
@@ -701,18 +704,18 @@ function init(): void {
   // not yet available) becomes a caught rejection and the finally always runs.
   Promise.resolve()
     .then(async () => {
-      const [config, libraries, virtualFolders, syncedCounts] = await Promise.all([
+      const [config, libraries, virtualFolders] = await Promise.all([
         loadConfig(),
         fetchLibraries().catch(() => [] as LibraryView[]),
         fetchVirtualFolders().catch(() => [] as VirtualFolderInfo[]),
-        fetchSegmentCounts().catch(() => null),
       ]);
 
       disabledSeriesIds = new Set(config.DisabledSeriesIds ?? []);
       disabledSeasonIds = new Set(config.DisabledSeasonIds ?? []);
       disabledMovieIds = new Set(config.DisabledMovieIds ?? []);
       enabledSpecialsSeasonIds = new Set(config.EnabledSpecialsSeasonIds ?? []);
-      segmentCounts = syncedCounts;
+      syncedSegmentCounts = null;
+      shareableSegmentCounts = null;
       filterQuery = "";
 
       const searchEl = byId<HTMLInputElement>("skipme-search");
@@ -819,6 +822,7 @@ function init(): void {
       }
 
       renderLibrarySections();
+      loadBadgeCounts();
     })
     .catch((err: unknown) => {
       console.error("[SkipMe.db] Failed to initialise settings page:", err);
@@ -827,6 +831,26 @@ function init(): void {
     .finally(() => {
       initRunning = false;
       hide("skipme-loading");
+    });
+}
+
+function loadBadgeCounts(): void {
+  fetchSegmentCounts()
+    .then((counts) => {
+      syncedSegmentCounts = counts;
+      if (activeTab === "sync") renderLibrarySections();
+    })
+    .catch((err: unknown) => {
+      console.error("[SkipMe.db] Failed to load synced segment counts:", err);
+    });
+
+  fetchShareableSegmentCounts()
+    .then((counts) => {
+      shareableSegmentCounts = counts;
+      if (activeTab === "share") renderLibrarySections();
+    })
+    .catch((err: unknown) => {
+      console.error("[SkipMe.db] Failed to load shareable segment counts:", err);
     });
 }
 
@@ -889,9 +913,9 @@ function share(): void {
         shareDisabledMovieIds.add(movieId);
       }
 
-      const refreshedCounts = await fetchSegmentCounts().catch(() => null);
+      const refreshedCounts = await fetchShareableSegmentCounts().catch(() => null);
       if (refreshedCounts) {
-        segmentCounts = refreshedCounts;
+        shareableSegmentCounts = refreshedCounts;
       }
       renderLibrarySections();
       const message =
@@ -1020,7 +1044,8 @@ function mountPage(rootEl: HTMLElement): void {
   activeTab = "sync";
   filteredSeriesIds = new Set();
   filteredMovieIds = new Set();
-  segmentCounts = null;
+  syncedSegmentCounts = null;
+  shareableSegmentCounts = null;
   seasonCache.clear();
 
   rootEl.innerHTML = buildPageHTML();

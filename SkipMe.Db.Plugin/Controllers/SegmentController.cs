@@ -28,18 +28,31 @@ public sealed class SegmentController(
     ILibraryManager libraryManager) : ControllerBase
 {
     /// <summary>
-    /// Gets synced and shareable segment counts grouped by series or movie.
+    /// Gets synced segment counts grouped by series or movie.
     /// </summary>
     /// <returns>Segment counts for items that are shown on the plugin settings page.</returns>
     [HttpGet("Segments/Counts")]
     public ActionResult<SegmentCountResponse> GetSegmentCounts()
     {
+        return Ok(MapCounts(segmentStore.GetSegmentCountsByItemId()));
+    }
+
+    /// <summary>
+    /// Gets unshared Intro Skipper segment counts grouped by series or movie.
+    /// </summary>
+    /// <returns>Shareable segment counts for items shown on the plugin settings page.</returns>
+    [HttpGet("Share/Counts")]
+    public ActionResult<SegmentCountResponse> GetShareableSegmentCounts()
+    {
+        return Ok(MapCounts(shareSubmissionService.GetShareableSegmentCountsByItemId()));
+    }
+
+    private SegmentCountResponse MapCounts(IReadOnlyDictionary<Guid, int> itemCounts)
+    {
         var seriesCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var movieCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var shareableSeriesCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var shareableMovieCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var (itemId, count) in segmentStore.GetSegmentCountsByItemId())
+        foreach (var (itemId, count) in itemCounts)
         {
             switch (libraryManager.GetItemById(itemId))
             {
@@ -54,27 +67,10 @@ public sealed class SegmentController(
             }
         }
 
-        foreach (var (itemId, count) in shareSubmissionService.GetShareableSegmentCountsByItemId())
-        {
-            switch (libraryManager.GetItemById(itemId))
-            {
-                case Movie movie:
-                    shareableMovieCounts[movie.Id.ToString("N")] = count;
-                    break;
-                case Episode { Series: { } series }:
-                    var seriesId = series.Id.ToString("N");
-                    shareableSeriesCounts.TryGetValue(seriesId, out var existingCount);
-                    shareableSeriesCounts[seriesId] = existingCount + count;
-                    break;
-            }
-        }
-
-        return Ok(new SegmentCountResponse
+        return new SegmentCountResponse
         {
             Series = seriesCounts,
             Movies = movieCounts,
-            ShareableSeries = shareableSeriesCounts,
-            ShareableMovies = shareableMovieCounts,
-        });
+        };
     }
 }

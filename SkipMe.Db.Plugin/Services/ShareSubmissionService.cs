@@ -114,17 +114,19 @@ public sealed class ShareSubmissionService
             };
         }
 
-        var dedupedTimestamps = _segmentStore.GetUnsharedTimestamps(allTimestamps);
-        var dedupedSet = new HashSet<SharedUploadTimestamp>(dedupedTimestamps);
-        var skippedAlreadyShared = allTimestamps.Count - dedupedSet.Count;
+        // Deduplicate each timestamp independently.  The request can still be sent as a
+        // batch, but one previously shared timestamp must not suppress any other item.
+        var unsharedTimestamps = _segmentStore.GetUnsharedTimestamps(allTimestamps);
+        var unsharedSet = new HashSet<SharedUploadTimestamp>(unsharedTimestamps);
+        var skippedAlreadyShared = allTimestamps.Count - unsharedTimestamps.Count;
 
         foreach (var season in seasonRequests)
         {
-            season.Items = [.. season.Items.Where(i => dedupedSet.Contains(i.Timestamp))];
+            season.Items = [.. season.Items.Where(i => unsharedSet.Contains(i.Timestamp))];
         }
 
         seasonRequests = [.. seasonRequests.Where(s => s.Items.Count > 0)];
-        movieRequests = [.. movieRequests.Where(m => dedupedSet.Contains(m.Timestamp))];
+        movieRequests = [.. movieRequests.Where(m => unsharedSet.Contains(m.Timestamp))];
 
         if (seasonRequests.Count == 0 && movieRequests.Count == 0)
         {
@@ -152,9 +154,14 @@ public sealed class ShareSubmissionService
                 ok = true;
                 sharedSegments += seasonResult.Submitted;
                 sharedShowSeasons = seasonRequests.Count;
-                // Record immediately so a crash before movie submission does not cause re-submission.
                 var seasonTimestamps = seasonRequests.SelectMany(s => s.Items).Select(i => i.Timestamp).ToList();
-                await _segmentStore.RecordSharedTimestampsAsync(seasonTimestamps).ConfigureAwait(false);
+                // The API only returns an aggregate count.  If it accepted a partial batch,
+                // there is no safe way to identify which individual timestamps were accepted.
+                // Leave the whole batch unrecorded so a retry cannot hide newly added segments.
+                if (seasonResult.Submitted == seasonTimestamps.Count)
+                {
+                    await _segmentStore.RecordSharedTimestampsAsync(seasonTimestamps).ConfigureAwait(false);
+                }
             }
             else
             {
@@ -173,9 +180,13 @@ public sealed class ShareSubmissionService
                 ok = true;
                 sharedSegments += movieResult.Submitted;
                 sharedMovies = movieRequests.Count;
-                // Record immediately so state is durable even if the response is lost.
                 var movieTimestamps = movieRequests.Select(m => m.Timestamp).ToList();
-                await _segmentStore.RecordSharedTimestampsAsync(movieTimestamps).ConfigureAwait(false);
+                // See the season batch above: only persist history when every individual
+                // timestamp in this request was confirmed by the aggregate response.
+                if (movieResult.Submitted == movieTimestamps.Count)
+                {
+                    await _segmentStore.RecordSharedTimestampsAsync(movieTimestamps).ConfigureAwait(false);
+                }
             }
             else
             {

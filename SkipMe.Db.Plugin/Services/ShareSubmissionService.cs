@@ -546,20 +546,26 @@ public sealed class ShareSubmissionService
         {
             var chunk = itemIds.Skip(offset).Take(chunkSize).ToList();
             using var command = connection.CreateCommand();
-            var placeholders = new List<string>(chunk.Count);
+            var placeholders = new List<string>(chunk.Count * 2);
 
             for (var i = 0; i < chunk.Count; i++)
             {
-                var parameterName = $"@item{i}";
-                placeholders.Add(parameterName);
-                command.Parameters.AddWithValue(parameterName, chunk[i].ToString());
+                // EF Core's SQLite Guid representation is normally the dashed (D)
+                // format, but older databases and manually migrated databases may
+                // contain the compact (N) format. Match both representations.
+                var dashedParameterName = $"@itemD{i}";
+                var compactParameterName = $"@itemN{i}";
+                placeholders.Add(dashedParameterName);
+                placeholders.Add(compactParameterName);
+                command.Parameters.AddWithValue(dashedParameterName, chunk[i].ToString("D"));
+                command.Parameters.AddWithValue(compactParameterName, chunk[i].ToString("N"));
             }
 
             command.CommandText = $"""
                 SELECT {selectFields}
                 FROM DbSegment
                 WHERE Type IN (0, 1, 2, 3)
-                  AND ItemId IN ({string.Join(",", placeholders)})
+                  AND ItemId COLLATE NOCASE IN ({string.Join(",", placeholders)})
                 """;
 
             using var reader = command.ExecuteReader();

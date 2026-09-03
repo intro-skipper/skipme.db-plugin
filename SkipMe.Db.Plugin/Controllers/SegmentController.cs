@@ -59,10 +59,23 @@ public sealed class SegmentController(
                 case Movie movie:
                     movieCounts[movie.Id.ToString("N")] = count;
                     break;
-                case Episode { Series: { } series }:
-                    var seriesId = series.Id.ToString("N");
-                    seriesCounts.TryGetValue(seriesId, out var existingCount);
-                    seriesCounts[seriesId] = existingCount + count;
+                case Episode episode:
+                    // SeriesId is persisted on the episode and is available even when
+                    // the navigation property has not been hydrated by the library
+                    // manager. Falling back to Series keeps compatibility with items
+                    // created by older Jellyfin versions.
+                    var seriesId = episode.SeriesId;
+                    if (seriesId == Guid.Empty && episode.Series is { } series)
+                    {
+                        seriesId = series.Id;
+                    }
+
+                    if (seriesId != Guid.Empty)
+                    {
+                        var seriesKey = seriesId.ToString("N");
+                        seriesCounts.TryGetValue(seriesKey, out var existingCount);
+                        seriesCounts[seriesKey] = existingCount + count;
+                    }
                     break;
             }
         }

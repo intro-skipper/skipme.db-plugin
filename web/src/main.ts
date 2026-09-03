@@ -68,11 +68,22 @@ function getDisplayedSegmentCount(
 
   if (activeTab === "share") {
     const shareCounts = kind === "series" ? counts.Series : counts.Movies;
-    return { count: shareCounts[itemId] ?? 0, label: "Segments available to share" };
+    return { count: getCountForItem(shareCounts, itemId), label: "Segments available to share" };
   }
 
   const syncedCounts = kind === "series" ? counts.Series : counts.Movies;
-  return { count: syncedCounts[itemId] ?? 0, label: "Currently synced segments" };
+  return { count: getCountForItem(syncedCounts, itemId), label: "Currently synced segments" };
+}
+
+function getCountForItem(counts: Record<string, number>, itemId: string): number {
+  const directCount = counts[itemId];
+  if (directCount !== undefined) return directCount;
+
+  const normalizedItemId = itemId.replaceAll("-", "").toLowerCase();
+  const matchingKey = Object.keys(counts).find(
+    (key) => key.replaceAll("-", "").toLowerCase() === normalizedItemId,
+  );
+  return matchingKey === undefined ? 0 : counts[matchingKey];
 }
 
 // ── Share-tab independent state (always defaults to all disabled on page load) ──

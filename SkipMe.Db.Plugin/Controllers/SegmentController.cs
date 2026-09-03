@@ -76,6 +76,7 @@ public sealed class SegmentController(
                         seriesCounts.TryGetValue(seriesKey, out var existingCount);
                         seriesCounts[seriesKey] = existingCount + count;
                     }
+
                     break;
             }
         }

@@ -8,6 +8,10 @@ The plugin stores synced timestamps locally, lets you disable synced segments by
 library, series, season, or movie, and can share locally saved Intro Skipper
 timestamps back to SkipMe.db.
 
+> [!CAUTION]
+> Threatening to bypass restrictions without permission is not a courtesy and will result in service termination.  
+> Restrictions are in place due to the bandwidth limitations of the service, not as a means to hoard data.
+
 ## Requirements
 
 - Jellyfin 12.0.0-rc2 or newer compatible 12 builds

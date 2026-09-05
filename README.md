@@ -9,8 +9,8 @@ library, series, season, or movie, and can share locally saved Intro Skipper
 timestamps back to SkipMe.db.
 
 > [!CAUTION]
-> Threatening to bypass restrictions without permission is not a courtesy and will result in service termination.  
-> Restrictions are in place due to the bandwidth limitations of the service, not as a means to hoard data.
+> Threatening to bypass restrictions without permission is not a courtesy and will lead to service termination.  
+> Restrictions are in place due to the bandwidth limitations of the services, not as a means for hoarding data.
 
 ## Requirements
 

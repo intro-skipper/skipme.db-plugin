@@ -227,7 +227,16 @@ public class SyncSegmentsTask : IScheduledTask
 
             if (!movieResult.Completed || !showResult.Completed)
             {
-                _logger.LogWarning("SkipMe.db sync did not complete all remote batches; keeping the existing local segment database intact.");
+                if (movieResult.PotentialUsageLimitExceeded || showResult.PotentialUsageLimitExceeded)
+                {
+                    _logger.LogWarning(
+                        "SkipMe.db sync encountered HTTP 500 from the remote API; this may indicate that a usage limit was exceeded. Keeping the existing local segment database intact.");
+                }
+                else
+                {
+                    _logger.LogWarning("SkipMe.db sync did not complete all remote batches; keeping the existing local segment database intact.");
+                }
+
                 return;
             }
 

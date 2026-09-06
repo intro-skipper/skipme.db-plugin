@@ -9,4 +9,7 @@ namespace SkipMe.Db.Plugin.Services;
 /// Result of a batch API lookup.
 /// </summary>
 /// <typeparam name="TResponse">Response item type.</typeparam>
-internal sealed record ApiBatchResult<TResponse>(IReadOnlyList<TResponse?> Responses, bool Completed);
+internal sealed record ApiBatchResult<TResponse>(
+    IReadOnlyList<TResponse?> Responses,
+    bool Completed,
+    bool PotentialUsageLimitExceeded = false);

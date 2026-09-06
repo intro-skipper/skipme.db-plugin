@@ -128,6 +128,8 @@ public class SkipMeApiClient
         IReadOnlyList<TRequest> batch,
         CancellationToken cancellationToken)
     {
+        var endpoint = GetEndpointName(url);
+
         try
         {
             return await PostSingleBatchAsync<TRequest, TResponse>(client, url, batch, cancellationToken).ConfigureAwait(false);
@@ -143,7 +145,7 @@ public class SkipMeApiClient
             {
                 if (_logger.IsEnabled(LogLevel.Warning))
                 {
-                    _logger.LogWarning(ex, "Failed to fetch {BatchCount} segment lookup(s) from SkipMe.db API at {Url}", batch.Count, url);
+                    _logger.LogWarning(ex, "Failed to fetch {BatchCount} segment lookup(s) from SkipMe.db API {Endpoint}", batch.Count, endpoint);
                 }
 
                 return FailedBatch<TResponse>(batch.Count);
@@ -154,9 +156,9 @@ public class SkipMeApiClient
             {
                 _logger.LogWarning(
                     ex,
-                    "Timed out fetching {BatchCount} segment lookup(s) from SkipMe.db API at {Url}; retrying as {FirstBatchCount} and {SecondBatchCount} lookup batch(es)",
+                    "Timed out fetching {BatchCount} segment lookup(s) from SkipMe.db API {Endpoint}; retrying as {FirstBatchCount} and {SecondBatchCount} lookup batch(es)",
                     batch.Count,
-                    url,
+                    endpoint,
                     midpoint,
                     batch.Count - midpoint);
             }
@@ -180,7 +182,7 @@ public class SkipMeApiClient
         {
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning(ex, "Failed to fetch {BatchCount} segment lookup(s) from SkipMe.db API at {Url}", batch.Count, url);
+                _logger.LogWarning(ex, "Failed to fetch {BatchCount} segment lookup(s) from SkipMe.db API {Endpoint}", batch.Count, endpoint);
             }
 
             return FailedBatch<TResponse>(batch.Count);
@@ -193,6 +195,7 @@ public class SkipMeApiClient
         IReadOnlyList<TRequest> batch,
         CancellationToken cancellationToken)
     {
+        var endpoint = GetEndpointName(url);
         using var response = await client.PostAsJsonAsync(url, batch, _jsonOptions, cancellationToken).ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
@@ -200,9 +203,9 @@ public class SkipMeApiClient
             if (_logger.IsEnabled(LogLevel.Warning))
             {
                 _logger.LogWarning(
-                    "SkipMe.db API returned {StatusCode} for {Url} while fetching {BatchCount} item(s)",
+                    "SkipMe.db API returned {StatusCode} for {Endpoint} while fetching {BatchCount} item(s)",
                     (int)response.StatusCode,
-                    url,
+                    endpoint,
                     batch.Count);
             }
 
@@ -219,8 +222,8 @@ public class SkipMeApiClient
         if (_logger.IsEnabled(LogLevel.Warning))
         {
             _logger.LogWarning(
-                "SkipMe.db API response count mismatch for {Url}: expected {ExpectedCount}, got {ActualCount}",
-                url,
+                "SkipMe.db API response count mismatch for {Endpoint}: expected {ExpectedCount}, got {ActualCount}",
+                endpoint,
                 batch.Count,
                 payload.Count);
         }
@@ -232,6 +235,11 @@ public class SkipMeApiClient
         }
 
         return new ApiBatchResult<TResponse>(results, false);
+    }
+
+    private static string GetEndpointName(Uri url)
+    {
+        return url.Segments[^1].Trim('/');
     }
 
     private static ApiBatchResult<TResponse> FailedBatch<TResponse>(int count)

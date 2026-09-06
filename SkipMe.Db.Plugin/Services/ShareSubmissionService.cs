@@ -713,7 +713,7 @@ public sealed class ShareSubmissionService
                     return new SubmitResult(
                         false,
                         0,
-                        $"HTTP 500 Internal Server Error (possible SkipMe.db usage limit exceeded): {body}");
+                        $"HTTP 500 Internal Server Error: {body}");
                 }
 
                 return new SubmitResult(false, 0, $"HTTP {(int)httpResponse.StatusCode}: {body}");

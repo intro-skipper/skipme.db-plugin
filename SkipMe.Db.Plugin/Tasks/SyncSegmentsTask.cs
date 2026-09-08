@@ -227,7 +227,6 @@ public class SyncSegmentsTask : IScheduledTask
 
             if (!movieResult.Completed || !showResult.Completed)
             {
-
                 _logger.LogWarning("SkipMe.db sync did not complete all remote batches; keeping the existing local segment database intact.");
                 return;
             }

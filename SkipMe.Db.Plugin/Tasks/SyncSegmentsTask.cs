@@ -26,6 +26,11 @@ public class SyncSegmentsTask : IScheduledTask
 {
     /// <summary>Maximum duration difference in milliseconds for a series segment to match a media file (±5 s).</summary>
     private const long SeriesDurationToleranceMs = 5000;
+    private const double DiscoveryProgressEnd = 10.0;
+    private const double MovieLookupProgressEnd = 40.0;
+    private const double MovieResponseProcessingProgressEnd = 55.0;
+    private const double ShowLookupProgressEnd = 90.0;
+    private const double ResponseProcessingProgressEnd = 95.0;
     private const string MediaSegmentScanTaskKey = "TaskExtractMediaSegments";
 
     private static readonly SemaphoreSlim SyncExecutionGate = new(1, 1);
@@ -96,6 +101,8 @@ public class SyncSegmentsTask : IScheduledTask
 
         try
         {
+            progress.Report(0.0);
+
             var newSegments = new Dictionary<Guid, List<StoredSegment>>();
 
             var movies = _libraryManager
@@ -132,7 +139,7 @@ public class SyncSegmentsTask : IScheduledTask
                 }
 
                 processed++;
-                ReportProgress(progress, processed, totalItems);
+                ReportProgress(progress, processed, totalItems, 0.0, DiscoveryProgressEnd);
             }
 
             foreach (var episode in allEpisodes)
@@ -167,7 +174,7 @@ public class SyncSegmentsTask : IScheduledTask
                 }
 
                 processed++;
-                ReportProgress(progress, processed, totalItems);
+                ReportProgress(progress, processed, totalItems, 0.0, DiscoveryProgressEnd);
             }
 
             var movieLookups = movieLookupMap.Values.ToList();
@@ -180,13 +187,42 @@ public class SyncSegmentsTask : IScheduledTask
             }
 
             var movieRequests = movieLookups.Select(w => w.Request).ToList();
-            var movieResult = await _apiClient.GetByMoviesBatchWithStatusAsync(movieRequests, cancellationToken).ConfigureAwait(false);
+            var showLookups = showLookupMap.Values.ToList();
+            var showRequests = showLookups.Select(w => w.Request).ToList();
+            var completedMovieLookups = 0;
+
+            void ReportMovieBatchProgress(int batchCount)
+            {
+                completedMovieLookups += batchCount;
+                ReportProgress(
+                    progress,
+                    completedMovieLookups,
+                    movieLookups.Count,
+                    DiscoveryProgressEnd,
+                    MovieLookupProgressEnd);
+            }
+
+            var movieResult = await _apiClient.GetByMoviesBatchWithStatusAsync(
+                movieRequests,
+                cancellationToken,
+                ReportMovieBatchProgress).ConfigureAwait(false);
+
+            progress.Report(MovieLookupProgressEnd);
+            var processedMovieLookups = 0;
+
             for (var i = 0; i < movieLookups.Count && i < movieResult.Responses.Count; i++)
             {
                 var response = movieResult.Responses[i];
                 if (response is null)
                 {
                     // A null response is a valid no-result item; continue processing the rest of the batch.
+                    processedMovieLookups++;
+                    ReportProgress(
+                        progress,
+                        processedMovieLookups,
+                        movieLookups.Count,
+                        MovieLookupProgressEnd,
+                        MovieResponseProcessingProgressEnd);
                     continue;
                 }
 
@@ -198,16 +234,49 @@ public class SyncSegmentsTask : IScheduledTask
                         newSegments[itemId] = segments;
                     }
                 }
+
+                processedMovieLookups++;
+                ReportProgress(
+                    progress,
+                    processedMovieLookups,
+                    movieLookups.Count,
+                    MovieLookupProgressEnd,
+                    MovieResponseProcessingProgressEnd);
             }
 
-            var showLookups = showLookupMap.Values.ToList();
-            var showRequests = showLookups.Select(w => w.Request).ToList();
-            var showResult = await _apiClient.GetByShowsBatchWithStatusAsync(showRequests, cancellationToken).ConfigureAwait(false);
+            progress.Report(MovieResponseProcessingProgressEnd);
+            var completedShowLookups = 0;
+
+            void ReportShowBatchProgress(int batchCount)
+            {
+                completedShowLookups += batchCount;
+                ReportProgress(
+                    progress,
+                    completedShowLookups,
+                    showLookups.Count,
+                    MovieResponseProcessingProgressEnd,
+                    ShowLookupProgressEnd);
+            }
+
+            var showResult = await _apiClient.GetByShowsBatchWithStatusAsync(
+                showRequests,
+                cancellationToken,
+                ReportShowBatchProgress).ConfigureAwait(false);
+
+            progress.Report(ShowLookupProgressEnd);
+            var processedShowLookups = 0;
             for (var i = 0; i < showLookups.Count && i < showResult.Responses.Count; i++)
             {
                 var showResponse = showResult.Responses[i];
                 if (showResponse is null)
                 {
+                    processedShowLookups++;
+                    ReportProgress(
+                        progress,
+                        processedShowLookups,
+                        showLookups.Count,
+                        ShowLookupProgressEnd,
+                        ResponseProcessingProgressEnd);
                     continue;
                 }
 
@@ -223,6 +292,14 @@ public class SyncSegmentsTask : IScheduledTask
                         newSegments[episode.ItemId] = segments;
                     }
                 }
+
+                processedShowLookups++;
+                ReportProgress(
+                    progress,
+                    processedShowLookups,
+                    showLookups.Count,
+                    ShowLookupProgressEnd,
+                    ResponseProcessingProgressEnd);
             }
 
             if (!movieResult.Completed || !showResult.Completed)
@@ -231,8 +308,10 @@ public class SyncSegmentsTask : IScheduledTask
                 return;
             }
 
+            progress.Report(ResponseProcessingProgressEnd);
             await _segmentStore.ReplaceAllAsync(newSegments).ConfigureAwait(false);
             await _segmentStore.SetLastSuccessfulSyncUtcAsync(DateTimeOffset.UtcNow).ConfigureAwait(false);
+            progress.Report(100.0);
 
             if (_logger.IsEnabled(LogLevel.Information))
             {
@@ -553,11 +632,16 @@ public class SyncSegmentsTask : IScheduledTask
             episode.IndexNumber);
     }
 
-    private static void ReportProgress(IProgress<double> progress, int processed, int total)
+    private static void ReportProgress(
+        IProgress<double> progress,
+        int processed,
+        int total,
+        double rangeStart,
+        double rangeEnd)
     {
         if (total > 0)
         {
-            progress.Report(100.0 * processed / total);
+            progress.Report(rangeStart + ((rangeEnd - rangeStart) * processed / total));
         }
     }
 

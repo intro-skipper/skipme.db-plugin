@@ -54,7 +54,7 @@ public class SkipMeApiClient
         IReadOnlyList<MovieLookupRequest> requests,
         CancellationToken cancellationToken)
     {
-        var result = await GetByMoviesBatchWithStatusAsync(requests, cancellationToken).ConfigureAwait(false);
+        var result = await GetByMoviesBatchWithStatusAsync(requests, null, cancellationToken).ConfigureAwait(false);
         return result.Responses;
     }
 
@@ -67,10 +67,10 @@ public class SkipMeApiClient
     /// <returns>A response list plus whether all batches completed reliably.</returns>
     internal Task<ApiBatchResult<MediaResponse>> GetByMoviesBatchWithStatusAsync(
         IReadOnlyList<MovieLookupRequest> requests,
-        CancellationToken cancellationToken,
-        Action<int>? onBatchCompleted = null)
+        Action<int>? onBatchCompleted,
+        CancellationToken cancellationToken)
     {
-        return PostBatchAsync<MovieLookupRequest, MediaResponse>("/v1/movies", requests, cancellationToken, onBatchCompleted);
+        return PostBatchAsync<MovieLookupRequest, MediaResponse>("/v1/movies", requests, onBatchCompleted, cancellationToken);
     }
 
     /// <summary>
@@ -83,7 +83,7 @@ public class SkipMeApiClient
         IReadOnlyList<ShowLookupRequest> requests,
         CancellationToken cancellationToken)
     {
-        var result = await GetByShowsBatchWithStatusAsync(requests, cancellationToken).ConfigureAwait(false);
+        var result = await GetByShowsBatchWithStatusAsync(requests, null, cancellationToken).ConfigureAwait(false);
         return result.Responses;
     }
 
@@ -96,17 +96,17 @@ public class SkipMeApiClient
     /// <returns>A response list plus whether all batches completed reliably.</returns>
     internal Task<ApiBatchResult<SeriesResponse>> GetByShowsBatchWithStatusAsync(
         IReadOnlyList<ShowLookupRequest> requests,
-        CancellationToken cancellationToken,
-        Action<int>? onBatchCompleted = null)
+        Action<int>? onBatchCompleted,
+        CancellationToken cancellationToken)
     {
-        return PostBatchAsync<ShowLookupRequest, SeriesResponse>("/v1/shows", requests, cancellationToken, onBatchCompleted);
+        return PostBatchAsync<ShowLookupRequest, SeriesResponse>("/v1/shows", requests, onBatchCompleted, cancellationToken);
     }
 
     private async Task<ApiBatchResult<TResponse>> PostBatchAsync<TRequest, TResponse>(
         string endpointPath,
         IReadOnlyList<TRequest> requests,
-        CancellationToken cancellationToken,
-        Action<int>? onBatchCompleted)
+        Action<int>? onBatchCompleted,
+        CancellationToken cancellationToken)
     {
         if (requests.Count == 0)
         {
@@ -125,8 +125,8 @@ public class SkipMeApiClient
                 client,
                 url,
                 batch,
-                cancellationToken,
-                onBatchCompleted).ConfigureAwait(false);
+                onBatchCompleted,
+                cancellationToken).ConfigureAwait(false);
             completed &= result.Completed;
             potentialUsageLimitExceeded |= result.PotentialUsageLimitExceeded;
             results.AddRange(result.Responses);
@@ -139,8 +139,8 @@ public class SkipMeApiClient
         HttpClient client,
         Uri url,
         IReadOnlyList<TRequest> batch,
-        CancellationToken cancellationToken,
-        Action<int>? onBatchCompleted)
+        Action<int>? onBatchCompleted,
+        CancellationToken cancellationToken)
     {
         var endpoint = GetEndpointName(url);
 
@@ -183,14 +183,14 @@ public class SkipMeApiClient
                 client,
                 url,
                 batch.Take(midpoint).ToList(),
-                cancellationToken,
-                onBatchCompleted).ConfigureAwait(false);
+                onBatchCompleted,
+                cancellationToken).ConfigureAwait(false);
             var second = await PostBatchWithFallbackAsync<TRequest, TResponse>(
                 client,
                 url,
                 batch.Skip(midpoint).ToList(),
-                cancellationToken,
-                onBatchCompleted).ConfigureAwait(false);
+                onBatchCompleted,
+                cancellationToken).ConfigureAwait(false);
 
             return new ApiBatchResult<TResponse>(
                 first.Responses.Concat(second.Responses).ToList(),

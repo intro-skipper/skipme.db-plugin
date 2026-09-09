@@ -204,8 +204,8 @@ public class SyncSegmentsTask : IScheduledTask
 
             var movieResult = await _apiClient.GetByMoviesBatchWithStatusAsync(
                 movieRequests,
-                cancellationToken,
-                ReportMovieBatchProgress).ConfigureAwait(false);
+                ReportMovieBatchProgress,
+                cancellationToken).ConfigureAwait(false);
 
             progress.Report(MovieLookupProgressEnd);
             var processedMovieLookups = 0;
@@ -260,8 +260,8 @@ public class SyncSegmentsTask : IScheduledTask
 
             var showResult = await _apiClient.GetByShowsBatchWithStatusAsync(
                 showRequests,
-                cancellationToken,
-                ReportShowBatchProgress).ConfigureAwait(false);
+                ReportShowBatchProgress,
+                cancellationToken).ConfigureAwait(false);
 
             progress.Report(ShowLookupProgressEnd);
             var processedShowLookups = 0;

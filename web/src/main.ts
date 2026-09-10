@@ -120,6 +120,19 @@ function setStatus(msg: string, type: "ok" | "err" | ""): void {
   }
 }
 
+function refreshShareableCountsInBackground(): void {
+  fetchShareableSegmentCounts()
+    .then((counts) => {
+      shareableSegmentCounts = counts;
+      if (activeTab === "share") renderLibrarySections();
+    })
+    .catch((err: unknown) => {
+      // Count badges are supplementary; a failed refresh must not make a
+      // completed share look like it is still running.
+      console.error("[SkipMe.db] Failed to refresh shareable segment counts:", err);
+    });
+}
+
 function updateTopDescription(): void {
   const descriptionEl = byId("skipme-description");
   if (!descriptionEl) return;
@@ -924,10 +937,6 @@ function share(): void {
         shareDisabledMovieIds.add(movieId);
       }
 
-      const refreshedCounts = await fetchShareableSegmentCounts().catch(() => null);
-      if (refreshedCounts) {
-        shareableSegmentCounts = refreshedCounts;
-      }
       renderLibrarySections();
       const message =
         `Shared ${result.SharedSegments} segment(s). ` +
@@ -936,6 +945,7 @@ function share(): void {
         `${result.SkippedNoSegments} without Intro Skipper timestamps.`;
 
       setStatus(message, "ok");
+      refreshShareableCountsInBackground();
     })
     .catch((err: unknown) => {
       console.error("[SkipMe.db] Failed to share segments:", err);

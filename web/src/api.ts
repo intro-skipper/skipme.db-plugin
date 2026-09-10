@@ -10,6 +10,7 @@ import type {
 } from "./types.ts";
 
 const PLUGIN_ID = "b2a63e62-0ac5-4575-9ad2-2c7534ccb83d";
+const SHARE_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
 // ── Auth helper ────────────────────────────────────────────────────────────────
 // Uses only the two stable window.ApiClient methods: serverAddress() and
@@ -144,20 +145,28 @@ export async function fetchVirtualFolders(): Promise<VirtualFolderInfo[]> {
 export async function shareEnabledItems(payload: ShareSubmitRequest): Promise<ShareSubmitResponse> {
   const base = window.ApiClient.serverAddress().replace(/\/+$/, "");
   const token = window.ApiClient.accessToken();
-  const response = await fetch(`${base}/SkipMeDb/Share`, {
-    method: "POST",
-    headers: {
-      Authorization: `MediaBrowser Token=${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), SHARE_REQUEST_TIMEOUT_MS);
 
-  if (!response.ok) {
-    throw new Error(`Failed to share segments (HTTP ${response.status})`);
+  try {
+    const response = await fetch(`${base}/SkipMeDb/Share`, {
+      method: "POST",
+      headers: {
+        Authorization: `MediaBrowser Token=${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to share segments (HTTP ${response.status})`);
+    }
+
+    return (await response.json()) as ShareSubmitResponse;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-
-  return (await response.json()) as ShareSubmitResponse;
 }
 
 export async function fetchSegmentCounts(): Promise<SegmentCountResponse> {

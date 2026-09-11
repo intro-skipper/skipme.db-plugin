@@ -39,6 +39,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="SkipMe.Db.Plugin.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="Configuration/configPage.html" />
     <EmbeddedResource Include="Configuration/skipme-index.js" />
     <EmbeddedResource Include="Configuration/skipme-index.css" />

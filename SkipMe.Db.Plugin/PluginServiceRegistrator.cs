@@ -1,11 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Intro Skipper contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Reflection;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using SkipMe.Db.Plugin.Providers;
 using SkipMe.Db.Plugin.Services;
 using SkipMe.Db.Plugin.Tasks;
@@ -23,6 +25,16 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     /// <inheritdoc/>
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
+        RegisterServices(serviceCollection, AppDomain.CurrentDomain.GetAssemblies());
+    }
+
+    internal static void RegisterServices(IServiceCollection serviceCollection, IEnumerable<Assembly> assemblies)
+    {
+        if (serviceCollection.Any(descriptor => descriptor.ServiceType == typeof(SegmentRefreshService)))
+        {
+            return;
+        }
+
         serviceCollection.AddHttpClient(nameof(SkipMeApiClient))
             .ConfigureHttpClient(c =>
             {
@@ -39,7 +51,21 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<TvMazeClient>();
         serviceCollection.AddSingleton<SegmentStore>();
         serviceCollection.AddSingleton<ShareSubmissionService>();
-        serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
+        serviceCollection.AddSingleton<SegmentProvider>();
+        var isIntegrated = IntroSkipperRegistration.TryRegister(serviceCollection, assemblies);
+        if (!isIntegrated)
+        {
+            serviceCollection.AddSingleton<IMediaSegmentProvider>(static provider => provider.GetRequiredService<SegmentProvider>());
+        }
+        else
+        {
+            serviceCollection.AddHostedService<SegmentHandoverService>();
+        }
+
+        serviceCollection.AddSingleton(provider => new SegmentRefreshService(
+            provider.GetRequiredService<ITaskManager>(),
+            provider.GetRequiredService<ILogger<SegmentRefreshService>>(),
+            isIntegrated));
         serviceCollection.AddSingleton<IScheduledTask, SyncSegmentsTask>();
     }
 }

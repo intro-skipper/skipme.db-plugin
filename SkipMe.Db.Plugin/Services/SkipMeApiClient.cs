@@ -62,8 +62,8 @@ public class SkipMeApiClient
     /// Fetches segment timestamps for many movie/episode lookups via <c>POST /v1/movies</c>.
     /// </summary>
     /// <param name="requests">The lookup requests.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="onBatchCompleted">Optional callback invoked after each request batch finishes.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A response list plus whether all batches completed reliably.</returns>
     internal Task<ApiBatchResult<MediaResponse>> GetByMoviesBatchWithStatusAsync(
         IReadOnlyList<MovieLookupRequest> requests,
@@ -91,8 +91,8 @@ public class SkipMeApiClient
     /// Fetches segment timestamps for many show lookups via <c>POST /v1/shows</c>.
     /// </summary>
     /// <param name="requests">The lookup requests.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="onBatchCompleted">Optional callback invoked after each request batch finishes.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A response list plus whether all batches completed reliably.</returns>
     internal Task<ApiBatchResult<SeriesResponse>> GetByShowsBatchWithStatusAsync(
         IReadOnlyList<ShowLookupRequest> requests,

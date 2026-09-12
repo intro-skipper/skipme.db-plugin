@@ -7,7 +7,7 @@
 
       <div class="skipme-tabs" role="tablist" aria-label="SkipMe actions">
         <button id="skipme-tab-sync" type="button" class="skipme-tab-button is-active" role="tab" aria-selected="true">
-          Sync
+          Skip
         </button>
         <button id="skipme-tab-share" type="button" class="skipme-tab-button" role="tab" aria-selected="false">
           Share

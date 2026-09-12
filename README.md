@@ -53,7 +53,7 @@ Jellyfin controls media segment providers per library.
 3. Scroll to `Media segment providers`.
 4. Enable `SkipMe.db` and adjust provider priority as needed.
 
-Inside the plugin settings page, the `Sync` tab lets you suppress synced
+Inside the plugin settings page, the `Skip` tab lets you suppress synced
 SkipMe.db data for individual series, seasons, or movies. Disabled items remain
 in the local database, but the plugin does not surface them to Jellyfin.
 
@@ -64,11 +64,11 @@ explicitly in the plugin settings if you want those timestamps to appear.
 
 Open Dashboard -> Plugins -> SkipMe.db.
 
-- `Sync` tab: choose which synced SkipMe.db segments Jellyfin can use.
+- `Skip` tab: choose which synced SkipMe.db segments Jellyfin can use.
 - `Share` tab: choose which local Intro Skipper timestamps to upload to
   SkipMe.db.
 - Filter box: search large libraries before changing toggles or sharing.
-- `Save Settings`: persists the current Sync tab enable/disable choices.
+- `Save Settings`: persists the current Skip tab enable/disable choices.
 - `Share Enabled Items`: submits the currently enabled Share tab items.
 
 Library-level provider disabling in Jellyfin is respected by the settings page:

@@ -22,7 +22,7 @@ namespace SkipMe.Db.Plugin.Tasks;
 /// Scheduled task that syncs segment timestamps from the SkipMe.db API into the local segment store
 /// for every movie and TV episode present on the Jellyfin server.
 /// </summary>
-public class SyncSegmentsTask : IScheduledTask
+public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
 {
     /// <summary>Maximum duration difference in milliseconds for a series segment to match a media file (±5 s).</summary>
     private const long SeriesDurationToleranceMs = 5000;
@@ -31,15 +31,12 @@ public class SyncSegmentsTask : IScheduledTask
     private const double MovieResponseProcessingProgressEnd = 55.0;
     private const double ShowLookupProgressEnd = 90.0;
     private const double ResponseProcessingProgressEnd = 95.0;
-    private const string MediaSegmentScanTaskKey = "TaskExtractMediaSegments";
 
     private static readonly SemaphoreSlim SyncExecutionGate = new(1, 1);
-    private static readonly TaskOptions DefaultTaskOptions = new();
 
     private readonly ILibraryManager _libraryManager;
     private readonly SkipMeApiClient _apiClient;
     private readonly SegmentStore _segmentStore;
-    private readonly ITaskManager _taskManager;
     private readonly ILogger<SyncSegmentsTask> _logger;
 
     /// <summary>
@@ -48,19 +45,16 @@ public class SyncSegmentsTask : IScheduledTask
     /// <param name="libraryManager">The Jellyfin library manager.</param>
     /// <param name="apiClient">The SkipMe.db API client.</param>
     /// <param name="segmentStore">The local segment store.</param>
-    /// <param name="taskManager">The Jellyfin task manager, used to trigger the media segment scan after syncing.</param>
     /// <param name="logger">The logger.</param>
     public SyncSegmentsTask(
         ILibraryManager libraryManager,
         SkipMeApiClient apiClient,
         SegmentStore segmentStore,
-        ITaskManager taskManager,
         ILogger<SyncSegmentsTask> logger)
     {
         _libraryManager = libraryManager;
         _apiClient = apiClient;
         _segmentStore = segmentStore;
-        _taskManager = taskManager;
         _logger = logger;
     }
 
@@ -77,15 +71,23 @@ public class SyncSegmentsTask : IScheduledTask
     public string Category => "Intro Skipper";
 
     /// <inheritdoc/>
+    public bool IsHidden => true;
+
+    /// <inheritdoc/>
+    public bool IsEnabled => true;
+
+    /// <inheritdoc/>
+    public bool IsLogged => true;
+
+    /// <inheritdoc/>
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
     {
         return
         [
             new TaskTriggerInfo
             {
-                Type = TaskTriggerInfoType.WeeklyTrigger,
-                DayOfWeek = DayOfWeek.Sunday,
-                TimeOfDayTicks = TimeSpan.FromHours(1).Ticks,
+                Type = TaskTriggerInfoType.DailyTrigger,
+                TimeOfDayTicks = TimeSpan.Zero.Ticks,
             },
         ];
     }
@@ -334,38 +336,11 @@ public class SyncSegmentsTask : IScheduledTask
                     newSegments.Count,
                     totalItems);
             }
-
-            TriggerMediaSegmentScan();
         }
         finally
         {
             SyncExecutionGate.Release();
         }
-    }
-
-    private void TriggerMediaSegmentScan()
-    {
-        var worker = _taskManager.ScheduledTasks
-            .FirstOrDefault(t => string.Equals(t.ScheduledTask.Key, MediaSegmentScanTaskKey, StringComparison.Ordinal));
-
-        if (worker is null)
-        {
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                _logger.LogWarning(
-                    "Could not find scheduled task with key '{TaskKey}' — media segment scan will not be triggered",
-                    MediaSegmentScanTaskKey);
-            }
-
-            return;
-        }
-
-        if (_logger.IsEnabled(LogLevel.Information))
-        {
-            _logger.LogInformation("Queuing Jellyfin media segment scan ('{TaskKey}')", MediaSegmentScanTaskKey);
-        }
-
-        _taskManager.QueueScheduledTask(worker.ScheduledTask, DefaultTaskOptions);
     }
 
     // Instance method because it resolves season context via _libraryManager through GetEpisodeProviderIds().

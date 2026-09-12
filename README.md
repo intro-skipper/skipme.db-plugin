@@ -32,17 +32,8 @@ timestamps back to SkipMe.db.
 
 ## First Sync
 
-The plugin adds a scheduled task named `Sync SkipMe.db Segment Database` in the
-`Intro Skipper` task category.
-
-To populate the local segment database immediately:
-
-1. Go to Dashboard -> Scheduled Tasks.
-2. Run `Sync SkipMe.db Segment Database`.
-3. After a successful sync, the plugin queues Jellyfin's media segment scan so
-   Jellyfin can pick up the new timestamps.
-
-By default, the sync task runs weekly on Sunday at 1:00 AM.
+The plugin runs a scheduled task named `Sync SkipMe.db Segment Database` in the
+`Intro Skipper` task category. The task runs daily at midnight.
 
 ## Enabling, Disabling, and Priority
 

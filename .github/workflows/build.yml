@@ -46,9 +46,13 @@ jobs:
         run: dotnet restore SkipMe.Db.Plugin.sln
 
       - name: Build
+        env:
+          API_URL: ${{ secrets.API_URL }}
         run: dotnet build SkipMe.Db.Plugin.sln --configuration Release --no-restore
 
       - name: Test
+        env:
+          API_URL: ${{ secrets.API_URL }}
         run: dotnet test --no-restore --verbosity normal
 
       - name: Retrieve commit identification

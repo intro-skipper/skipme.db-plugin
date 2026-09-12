@@ -15,7 +15,21 @@
   <PropertyGroup>
     <NpmCommand Condition="'$(OS)' == 'Windows_NT'">npm.cmd</NpmCommand>
     <NpmCommand Condition="'$(OS)' != 'Windows_NT'">npm</NpmCommand>
+    <SkipMeApiUrl Condition="'$(SkipMeApiUrl)' == ''">$(API_URL)</SkipMeApiUrl>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(IntermediateOutputPath)Generated\ApiConfiguration.g.cs" Visible="false" />
+  </ItemGroup>
+
+  <Target Name="GenerateApiConfiguration" BeforeTargets="CoreCompile">
+    <Error Condition="'$(SkipMeApiUrl)' == ''" Text="SkipMeApiUrl must be provided through the build environment or an MSBuild property." />
+    <MakeDir Directories="$(IntermediateOutputPath)Generated" />
+    <WriteLinesToFile
+      File="$(IntermediateOutputPath)Generated\ApiConfiguration.g.cs"
+      Overwrite="true"
+      Lines="// &lt;auto-generated /&gt;;&#xA;namespace SkipMe.Db.Plugin.Services;&#xA;&#xA;internal static class ApiConfiguration&#xA;{&#xA;    internal const string Url = &quot;$(SkipMeApiUrl)&quot;;&#xA;}" />
+  </Target>
 
   <!-- Build the TypeScript configuration page before embedding it as a resource. -->
   <Target Name="NpmInstallWeb" BeforeTargets="NpmBuildWeb"

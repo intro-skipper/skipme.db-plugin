@@ -15,7 +15,7 @@ namespace SkipMe.Db.Plugin;
 /// <summary>
 /// The SkipMe.db plugin for Jellyfin.
 /// Retrieves crowd-sourced intro/credits/recap/preview segment timestamps
-/// from db.skipme.workers.dev and exposes them via the Jellyfin media segments API.
+/// from the configured SkipMe.db service and exposes them via the Jellyfin media segments API.
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {

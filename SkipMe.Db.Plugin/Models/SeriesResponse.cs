@@ -7,7 +7,7 @@ using System.Text.Json.Serialization;
 namespace SkipMe.Db.Plugin.Models;
 
 /// <summary>
-/// Represents a single item in the response from the SkipMe.db <c>POST /v1/shows</c> endpoint.
+/// Represents a single item in the response from the SkipMe.db shows endpoint.
 /// </summary>
 public class SeriesResponse
 {

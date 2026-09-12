@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 namespace SkipMe.Db.Plugin.Models;
 
 /// <summary>
-/// Represents a single lookup item for the SkipMe.db <c>POST /v1/shows</c> endpoint.
+/// Represents a single lookup item for the SkipMe.db shows endpoint.
 /// </summary>
 public class ShowLookupRequest
 {

@@ -29,8 +29,6 @@ namespace SkipMe.Db.Plugin.Services;
 /// </summary>
 public sealed class ShareSubmissionService
 {
-    private const string BaseUrl = "https://db.skipme.workers.dev";
-
     private readonly ILibraryManager _libraryManager;
     private readonly SegmentStore _segmentStore;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -148,7 +146,7 @@ public sealed class ShareSubmissionService
 
         if (seasonRequests.Count > 0)
         {
-            var seasonResult = await SubmitAsync(http, "/v1/submit/season", seasonRequests, cancellationToken).ConfigureAwait(false);
+            var seasonResult = await SubmitAsync(http, "/submit/season", seasonRequests, cancellationToken).ConfigureAwait(false);
             if (seasonResult.Ok)
             {
                 ok = true;
@@ -174,7 +172,7 @@ public sealed class ShareSubmissionService
 
         if (movieRequests.Count > 0)
         {
-            var movieResult = await SubmitAsync(http, "/v1/submit/collection", movieRequests, cancellationToken).ConfigureAwait(false);
+            var movieResult = await SubmitAsync(http, "/submit/collection", movieRequests, cancellationToken).ConfigureAwait(false);
             if (movieResult.Ok)
             {
                 ok = true;
@@ -694,7 +692,7 @@ public sealed class ShareSubmissionService
 
     private async Task<SubmitResult> SubmitAsync<TRequest>(HttpClient client, string path, TRequest payload, CancellationToken cancellationToken)
     {
-        var url = new Uri($"{BaseUrl}{path}");
+        var url = new Uri($"{ApiConfiguration.Url.TrimEnd('/')}{path}");
 
         try
         {

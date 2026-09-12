@@ -16,12 +16,11 @@ using SkipMe.Db.Plugin.Models;
 namespace SkipMe.Db.Plugin.Services;
 
 /// <summary>
-/// HTTP client for the SkipMe.db API at https://db.skipme.workers.dev.
+/// HTTP client for the configured SkipMe.db API.
 /// Fetches crowd-sourced segment timestamps for TV series and movies.
 /// </summary>
 public class SkipMeApiClient
 {
-    private const string BaseUrl = "https://db.skipme.workers.dev";
     private const int MaxRequestBytes = 100 * 1024 * 1024;
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
@@ -44,7 +43,7 @@ public class SkipMeApiClient
     }
 
     /// <summary>
-    /// Fetches segment timestamps for many movie/episode lookups via <c>POST /v1/movies</c>.
+    /// Fetches segment timestamps for many movie/episode lookups via the movies endpoint.
     /// </summary>
     /// <param name="requests">The lookup requests.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -58,7 +57,7 @@ public class SkipMeApiClient
     }
 
     /// <summary>
-    /// Fetches segment timestamps for many movie/episode lookups via <c>POST /v1/movies</c>.
+    /// Fetches segment timestamps for many movie/episode lookups via the movies endpoint.
     /// </summary>
     /// <param name="requests">The lookup requests.</param>
     /// <param name="onBatchCompleted">Optional callback invoked after each request batch finishes.</param>
@@ -69,11 +68,11 @@ public class SkipMeApiClient
         Action<int>? onBatchCompleted,
         CancellationToken cancellationToken)
     {
-        return PostBatchAsync<MovieLookupRequest, MediaResponse>("/v1/movies", requests, onBatchCompleted, cancellationToken);
+        return PostBatchAsync<MovieLookupRequest, MediaResponse>("/movies", requests, onBatchCompleted, cancellationToken);
     }
 
     /// <summary>
-    /// Fetches segment timestamps for many show lookups via <c>POST /v1/shows</c>.
+    /// Fetches segment timestamps for many show lookups via the shows endpoint.
     /// </summary>
     /// <param name="requests">The lookup requests.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -87,7 +86,7 @@ public class SkipMeApiClient
     }
 
     /// <summary>
-    /// Fetches segment timestamps for many show lookups via <c>POST /v1/shows</c>.
+    /// Fetches segment timestamps for many show lookups via the shows endpoint.
     /// </summary>
     /// <param name="requests">The lookup requests.</param>
     /// <param name="onBatchCompleted">Optional callback invoked after each request batch finishes.</param>
@@ -98,7 +97,7 @@ public class SkipMeApiClient
         Action<int>? onBatchCompleted,
         CancellationToken cancellationToken)
     {
-        return PostBatchAsync<ShowLookupRequest, SeriesResponse>("/v1/shows", requests, onBatchCompleted, cancellationToken);
+        return PostBatchAsync<ShowLookupRequest, SeriesResponse>("/shows", requests, onBatchCompleted, cancellationToken);
     }
 
     private async Task<ApiBatchResult<TResponse>> PostBatchAsync<TRequest, TResponse>(
@@ -116,7 +115,7 @@ public class SkipMeApiClient
         var completed = true;
         var usageLimitExceeded = false;
         var client = _httpClientFactory.CreateClient(nameof(SkipMeApiClient));
-        var url = new Uri($"{BaseUrl}{endpointPath}");
+        var url = new Uri($"{ApiConfiguration.Url.TrimEnd('/')}{endpointPath}");
 
         foreach (var batch in ChunkRequests(requests))
         {

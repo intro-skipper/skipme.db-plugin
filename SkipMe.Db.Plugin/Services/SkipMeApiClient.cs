@@ -23,6 +23,7 @@ public class SkipMeApiClient
 {
     private const string BaseUrl = "https://db.skipme.workers.dev";
     private const int MaxRequestBytes = 100 * 1024 * 1024;
+    private const int MaxBatchSegments = 1000;
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -273,6 +274,13 @@ public class SkipMeApiClient
             if (itemSize + 2 > MaxRequestBytes)
             {
                 throw new InvalidOperationException("A single SkipMe.db batch item exceeds the 100MB request size limit.");
+            }
+
+            if (current.Count >= MaxBatchSegments)
+            {
+                yield return current;
+                current = [];
+                currentSize = 2;
             }
 
             var additional = itemSize + (current.Count > 0 ? 1 : 0); // item + comma

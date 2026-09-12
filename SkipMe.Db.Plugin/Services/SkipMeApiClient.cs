@@ -115,11 +115,19 @@ public class SkipMeApiClient
 
         var results = new List<TResponse?>(requests.Count);
         var completed = true;
+        var usageLimitExceeded = false;
         var client = _httpClientFactory.CreateClient(nameof(SkipMeApiClient));
         var url = new Uri($"{BaseUrl}{endpointPath}");
 
         foreach (var batch in ChunkRequests(requests))
         {
+            if (usageLimitExceeded)
+            {
+                results.AddRange(Enumerable.Repeat<TResponse?>(default, batch.Count));
+                completed = false;
+                continue;
+            }
+
             var result = await PostBatchWithFallbackAsync<TRequest, TResponse>(
                 client,
                 url,
@@ -127,10 +135,11 @@ public class SkipMeApiClient
                 onBatchCompleted,
                 cancellationToken).ConfigureAwait(false);
             completed &= result.Completed;
+            usageLimitExceeded |= result.UsageLimitExceeded;
             results.AddRange(result.Responses);
         }
 
-        return new ApiBatchResult<TResponse>(results, completed);
+        return new ApiBatchResult<TResponse>(results, completed, usageLimitExceeded);
     }
 
     private async Task<ApiBatchResult<TResponse>> PostBatchWithFallbackAsync<TRequest, TResponse>(
@@ -192,7 +201,8 @@ public class SkipMeApiClient
 
             return new ApiBatchResult<TResponse>(
                 first.Responses.Concat(second.Responses).ToList(),
-                first.Completed && second.Completed);
+                first.Completed && second.Completed,
+                first.UsageLimitExceeded || second.UsageLimitExceeded);
         }
         catch (HttpRequestException ex)
         {
@@ -216,16 +226,35 @@ public class SkipMeApiClient
 
         if (!response.IsSuccessStatusCode)
         {
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var usageLimitExceeded = response.StatusCode == System.Net.HttpStatusCode.InternalServerError
+                && responseBody.Contains("daily free tier limit", StringComparison.OrdinalIgnoreCase);
+
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning(
-                    "SkipMe.db API returned {StatusCode} for {Endpoint} while fetching {BatchCount} item(s)",
-                    (int)response.StatusCode,
-                    endpoint,
-                    batch.Count);
+                if (usageLimitExceeded)
+                {
+                    _logger.LogWarning(
+                        "SkipMe.db API usage limit reached while fetching {BatchCount} item(s) from {Endpoint}: {ResponseBody}",
+                        batch.Count,
+                        endpoint,
+                        responseBody);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "SkipMe.db API returned {StatusCode} for {Endpoint} while fetching {BatchCount} item(s): {ResponseBody}",
+                        (int)response.StatusCode,
+                        endpoint,
+                        batch.Count,
+                        responseBody);
+                }
             }
 
-            return FailedBatch<TResponse>(batch.Count);
+            return new ApiBatchResult<TResponse>(
+                Enumerable.Repeat<TResponse?>(default, batch.Count).ToList(),
+                false,
+                usageLimitExceeded);
         }
 
         var payload = await response.Content.ReadFromJsonAsync<List<TResponse?>>(cancellationToken).ConfigureAwait(false) ?? [];

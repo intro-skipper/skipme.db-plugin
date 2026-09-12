@@ -11,4 +11,5 @@ namespace SkipMe.Db.Plugin.Services;
 /// <typeparam name="TResponse">Response item type.</typeparam>
 internal sealed record ApiBatchResult<TResponse>(
     IReadOnlyList<TResponse?> Responses,
-    bool Completed);
+    bool Completed,
+    bool UsageLimitExceeded = false);

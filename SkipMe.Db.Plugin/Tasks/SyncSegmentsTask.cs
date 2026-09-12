@@ -258,10 +258,15 @@ public class SyncSegmentsTask : IScheduledTask
                     ShowLookupProgressEnd);
             }
 
-            var showResult = await _apiClient.GetByShowsBatchWithStatusAsync(
-                showRequests,
-                ReportShowBatchProgress,
-                cancellationToken).ConfigureAwait(false);
+            var showResult = movieResult.UsageLimitExceeded
+                ? new ApiBatchResult<SeriesResponse>(
+                    Enumerable.Repeat<SeriesResponse?>(default, showRequests.Count).ToList(),
+                    false,
+                    true)
+                : await _apiClient.GetByShowsBatchWithStatusAsync(
+                    showRequests,
+                    ReportShowBatchProgress,
+                    cancellationToken).ConfigureAwait(false);
 
             progress.Report(ShowLookupProgressEnd);
             var processedShowLookups = 0;
@@ -304,7 +309,16 @@ public class SyncSegmentsTask : IScheduledTask
 
             if (!movieResult.Completed || !showResult.Completed)
             {
-                _logger.LogWarning("SkipMe.db sync did not complete all remote batches; keeping the existing local segment database intact.");
+                if (movieResult.UsageLimitExceeded || showResult.UsageLimitExceeded)
+                {
+                    _logger.LogWarning(
+                        "SkipMe.db sync stopped because the remote API daily usage limit was reached; keeping the existing local segment database intact.");
+                }
+                else
+                {
+                    _logger.LogWarning("SkipMe.db sync did not complete all remote batches; keeping the existing local segment database intact.");
+                }
+
                 return;
             }
 

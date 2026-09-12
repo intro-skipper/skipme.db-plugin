@@ -28,7 +28,7 @@
     <WriteLinesToFile
       File="$(IntermediateOutputPath)Generated\ApiConfiguration.g.cs"
       Overwrite="true"
-      Lines="// &lt;auto-generated /&gt;;&#xA;namespace SkipMe.Db.Plugin.Services;&#xA;&#xA;internal static class ApiConfiguration&#xA;{&#xA;    internal const string Url = &quot;$(SkipMeApiUrl)&quot;;&#xA;}" />
+      Lines="// &lt;auto-generated /&gt;&#xA;namespace SkipMe.Db.Plugin.Services%3B&#xA;&#xA;internal static class ApiConfiguration&#xA;{&#xA;    internal const string Url = &quot;$(SkipMeApiUrl)&quot;%3B&#xA;}" />
   </Target>
 
   <!-- Build the TypeScript configuration page before embedding it as a resource. -->

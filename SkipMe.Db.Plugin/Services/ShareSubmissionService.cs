@@ -7,7 +7,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
@@ -696,7 +695,6 @@ public sealed class ShareSubmissionService
     private async Task<SubmitResult> SubmitAsync<TRequest>(HttpClient client, string path, TRequest payload, CancellationToken cancellationToken)
     {
         var url = new Uri($"{BaseUrl}{path}");
-        var endpoint = path.Trim('/').Split('/')[^1];
 
         try
         {
@@ -704,18 +702,6 @@ public sealed class ShareSubmissionService
             if (!httpResponse.IsSuccessStatusCode)
             {
                 var body = await httpResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                if (httpResponse.StatusCode == HttpStatusCode.InternalServerError)
-                {
-                    _logger.LogWarning(
-                        "SkipMe.db {Endpoint} returned HTTP 500; this may indicate that a usage limit was exceeded",
-                        endpoint);
-
-                    return new SubmitResult(
-                        false,
-                        0,
-                        $"HTTP 500 Internal Server Error: {body}");
-                }
-
                 return new SubmitResult(false, 0, $"HTTP {(int)httpResponse.StatusCode}: {body}");
             }
 

@@ -163,6 +163,20 @@ public sealed class SegmentProviderTests : IDisposable
         _tasks.Verify(tasks => tasks.QueueScheduledTask(It.Is<IScheduledTask>(task => task.Key == "TaskExtractMediaSegments"), It.IsAny<TaskOptions>()), Times.Never);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ChangingIntegrationPreferenceDoesNotSwitchProviderUntilRestart(bool integrated)
+    {
+        var plugin = CreatePlugin(integrated);
+
+        plugin.UpdateConfiguration(new PluginConfiguration { EnableIntroSkipperIntegration = !integrated });
+
+        Assert.Equal(!integrated, plugin.Configuration.EnableIntroSkipperIntegration);
+        _tasks.Verify(tasks => tasks.QueueScheduledTask(It.Is<IScheduledTask>(task => task.Key == "IntroSkipperDetectSegmentsTask"), It.IsAny<TaskOptions>()), integrated ? Times.Once() : Times.Never());
+        _tasks.Verify(tasks => tasks.QueueScheduledTask(It.Is<IScheduledTask>(task => task.Key == "TaskExtractMediaSegments"), It.IsAny<TaskOptions>()), Times.Never);
+    }
+
     public void Dispose()
     {
         _store.Dispose();

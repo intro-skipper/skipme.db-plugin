@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Reflection;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.MediaSegments;
+using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.DependencyInjection;
+using SkipMe.Db.Plugin.Configuration;
 using SkipMe.Db.Plugin.Providers;
 
 namespace SkipMe.Db.Plugin.Services;
@@ -12,6 +15,11 @@ internal static class IntroSkipperRegistration
 {
     internal static bool TryRegister(IServiceCollection services, IEnumerable<Assembly> assemblies)
     {
+        if (!IsEnabled(services))
+        {
+            return false;
+        }
+
         foreach (var assembly in assemblies)
         {
             if (!string.Equals(assembly.GetName().Name, "IntroSkipper", StringComparison.Ordinal))
@@ -53,5 +61,26 @@ internal static class IntroSkipperRegistration
         }
 
         return false;
+    }
+
+    private static bool IsEnabled(IServiceCollection services)
+    {
+        var paths = services.LastOrDefault(descriptor => !descriptor.IsKeyedService && descriptor.ServiceType == typeof(IApplicationPaths))?.ImplementationInstance as IApplicationPaths;
+        var serializer = services.LastOrDefault(descriptor => !descriptor.IsKeyedService && descriptor.ServiceType == typeof(IXmlSerializer))?.ImplementationInstance as IXmlSerializer;
+        if (paths is null || serializer is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var fileName = Path.ChangeExtension(Path.GetFileName(typeof(Plugin).Assembly.Location), ".xml");
+            var path = Path.Combine(paths.PluginConfigurationsPath, fileName);
+            return serializer.DeserializeFromFile(typeof(PluginConfiguration), path) is PluginConfiguration { EnableIntroSkipperIntegration: true };
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return false;
+        }
     }
 }

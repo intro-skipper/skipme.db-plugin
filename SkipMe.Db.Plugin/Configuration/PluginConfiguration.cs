@@ -13,6 +13,13 @@ namespace SkipMe.Db.Plugin.Configuration;
 public class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>
+    /// Gets or sets a value indicating whether SkipMe should register with a compatible
+    /// Intro Skipper instead of providing segments independently. Disabled by default;
+    /// changing this setting requires restarting Jellyfin.
+    /// </summary>
+    public bool EnableIntroSkipperIntegration { get; set; }
+
+    /// <summary>
     /// Gets the set of Jellyfin series item IDs for which crowd-sourced segments are disabled.
     /// When a series ID is present, no segments will be surfaced for any episode in that series.
     /// </summary>

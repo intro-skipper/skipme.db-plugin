@@ -52,6 +52,7 @@ let filterQuery = "";
 const seasonCache = new Map<string, BaseItem[]>();
 let searchDebounce = 0;
 let initRunning = false;
+let configLoaded = false;
 let eventsWired = false;
 let activeTab: "sync" | "share" = "sync";
 let filteredSeriesIds = new Set<string>();
@@ -156,6 +157,8 @@ function setActiveTab(tab: "sync" | "share"): void {
 
   if (saveBtn) saveBtn.style.display = syncActive ? "" : "none";
   if (shareBtn) shareBtn.style.display = syncActive ? "none" : "";
+  if (syncActive) show("skipme-integration");
+  else hide("skipme-integration");
 
   updateTopDescription();
   renderLibrarySections();
@@ -738,6 +741,14 @@ function init(): void {
       disabledSeasonIds = new Set(config.DisabledSeasonIds ?? []);
       disabledMovieIds = new Set(config.DisabledMovieIds ?? []);
       enabledSpecialsSeasonIds = new Set(config.EnabledSpecialsSeasonIds ?? []);
+      const integrationCheckbox = byId<HTMLInputElement>("skipme-intro-skipper-integration");
+      if (integrationCheckbox) {
+        integrationCheckbox.checked = config.EnableIntroSkipperIntegration === true;
+        integrationCheckbox.disabled = false;
+      }
+      configLoaded = true;
+      const saveBtn = byId<HTMLButtonElement>("skipme-save-btn");
+      if (saveBtn) saveBtn.disabled = false;
       syncedSegmentCounts = null;
       shareableSegmentCounts = null;
       filterQuery = "";
@@ -881,25 +892,38 @@ function loadBadgeCounts(): void {
 // ── Save ───────────────────────────────────────────────────────────────────────
 function save(): void {
   const btn = byId<HTMLButtonElement>("skipme-save-btn");
-  if (!btn) return;
+  const integrationCheckbox = byId<HTMLInputElement>("skipme-intro-skipper-integration");
+  if (!btn || !integrationCheckbox || !configLoaded || btn.disabled) return;
+  const integrationEnabled = integrationCheckbox.checked;
+  let integrationChanged = false;
   btn.disabled = true;
+  integrationCheckbox.disabled = true;
   setStatus("Saving…", "");
 
-  loadConfig()
+  Promise.resolve()
+    .then(() => loadConfig())
     .then((config) => {
+      integrationChanged = (config.EnableIntroSkipperIntegration === true) !== integrationEnabled;
+      config.EnableIntroSkipperIntegration = integrationEnabled;
       config.DisabledSeriesIds = Array.from(disabledSeriesIds);
       config.DisabledSeasonIds = Array.from(disabledSeasonIds);
       config.DisabledMovieIds = Array.from(disabledMovieIds);
       config.EnabledSpecialsSeasonIds = Array.from(enabledSpecialsSeasonIds);
       return saveConfig(config);
     })
-    .then(() => setStatus("Settings saved.", "ok"))
+    .then(() => setStatus(
+      integrationChanged
+        ? "Settings saved. Restart Jellyfin to apply the Intro Skipper integration change."
+        : "Settings saved.",
+      "ok",
+    ))
     .catch((err: unknown) => {
       console.error("[SkipMe.db] Failed to save settings:", err);
       setStatus("Failed to save — please try again.", "err");
     })
     .finally(() => {
-      if (btn) btn.disabled = false;
+      btn.disabled = false;
+      integrationCheckbox.disabled = false;
     });
 }
 
@@ -975,6 +999,21 @@ function buildPageHTML(): string {
         </button>
       </div>
 
+      <div id="skipme-integration" class="skipme-integration">
+        <label class="skipme-integration-label" for="skipme-intro-skipper-integration">
+          <input id="skipme-intro-skipper-integration" type="checkbox" disabled
+                 aria-describedby="skipme-integration-help skipme-integration-restart" />
+          <span>Use Intro Skipper for segment analysis</span>
+        </label>
+        <p id="skipme-integration-help" class="skipme-integration-help">
+          Off by default. When a compatible Intro Skipper is installed, use authoritative SkipMe matches
+          in Intro Skipper's segment analysis instead of the standalone SkipMe provider.
+        </p>
+        <p id="skipme-integration-restart" class="skipme-integration-help skipme-integration-restart">
+          Restart Jellyfin after changing and saving this setting. Changes do not take effect until restart.
+        </p>
+      </div>
+
       <div id="skipme-error" class="skipme-message skipme-error" style="display:none">
         <p>⚠ Failed to load library data. Please refresh the page.</p>
       </div>
@@ -1006,10 +1045,10 @@ function buildPageHTML(): string {
 
       <div class="skipme-footer">
         <button id="skipme-save-btn" is="emby-button" type="button"
-                class="raised button-submit emby-button">Save Settings</button>
+                class="raised button-submit emby-button" disabled>Save Settings</button>
         <button id="skipme-share-btn" is="emby-button" type="button"
                 class="raised button-submit emby-button" style="display:none">Share Enabled Items</button>
-        <span id="skipme-status" class="skipme-status"></span>
+        <span id="skipme-status" class="skipme-status" role="status"></span>
       </div>
     </div>`;
 }
@@ -1052,6 +1091,7 @@ function mountPage(rootEl: HTMLElement): void {
   // Reset all page-level state so a back-navigation starts fresh.
   eventsWired = false;
   initRunning = false;
+  configLoaded = false;
   disabledSeriesIds = new Set();
   disabledSeasonIds = new Set();
   disabledMovieIds = new Set();

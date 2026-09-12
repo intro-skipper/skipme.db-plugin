@@ -39,14 +39,46 @@ To populate the local segment database immediately:
 
 1. Go to Dashboard -> Scheduled Tasks.
 2. Run `Sync SkipMe.db Segment Database`.
-3. After a successful sync, the plugin queues Jellyfin's media segment scan so
-   Jellyfin can pick up the new timestamps.
+3. After a successful sync, the plugin queues Intro Skipper's segment detection
+   when integration is enabled and a compatible Intro Skipper is installed, or
+   Jellyfin's media segment scan when running standalone.
 
 By default, the sync task runs weekly on Sunday at 1:00 AM.
 
+## Intro Skipper Integration
+
+Intro Skipper integration is **off by default**, including for existing SkipMe.db
+installations. Installing both plugins does not change the standalone provider.
+To opt in, open SkipMe.db's **Sync** tab, enable **Use Intro Skipper for segment
+analysis**, save settings, and restart Jellyfin.
+
+When that preference is enabled and Intro Skipper exposes the compatible integration
+API, SkipMe.db supplies its local timestamps to Intro Skipper instead of registering
+as a separate Jellyfin media segment provider. Intro Skipper treats available
+SkipMe timestamps as authoritative and publishes the resulting segments. Saving
+SkipMe's item enable/disable settings also queues Intro Skipper detection while
+integrated mode is active.
+
+The Sync and Share tabs and the SkipMe.db API remain available in both modes.
+Series, season, movie, specials, and existing per-library SkipMe.db exclusions
+remain respected by the integrated source. In integrated mode, enable Intro
+Skipper as the library's Jellyfin segment provider; SkipMe.db no longer appears as
+a separate provider. If integration is off, the saved preference cannot be read, or
+Intro Skipper is absent or incompatible, SkipMe.db keeps its standalone provider
+behavior. Restart Jellyfin after changing the integration preference or installing
+or removing either plugin. Saving the preference does not switch the running
+provider; the new choice takes effect on restart.
+
+Once Jellyfin finishes startup, integrated mode queues initial Intro Skipper
+detection and removes legacy SkipMe-owned rows from Jellyfin's segment database.
+Jellyfin already hides these rows when the standalone provider is no longer
+registered. The local SkipMe database and other providers' segments are untouched.
+Cleanup failures are logged and retried; Intro Skipper publishes replacement
+segments asynchronously according to its own mirroring settings.
+
 ## Enabling, Disabling, and Priority
 
-Jellyfin controls media segment providers per library.
+Jellyfin controls media segment providers per library. For standalone SkipMe.db:
 
 1. Navigate to Dashboard -> Libraries -> Libraries.
 2. Open the desired library menu (`...`) -> Manage library.
@@ -110,6 +142,7 @@ Build the plugin:
 npm ci --prefix web
 dotnet restore SkipMe.Db.Plugin.sln
 dotnet build SkipMe.Db.Plugin.sln --configuration Release --no-restore
+dotnet test SkipMe.Db.Plugin.sln --configuration Release --no-build
 ```
 
 The web settings UI is built automatically during the .NET build and embedded in

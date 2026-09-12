@@ -55,7 +55,7 @@ public class SegmentProvider : IMediaSegmentProvider
     }
 
     /// <inheritdoc/>
-    public string Name => Plugin.Instance!.Name;
+    public string Name => "SkipMe.db";
 
     /// <inheritdoc/>
     public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(item is Episode or Movie);
@@ -67,7 +67,13 @@ public class SegmentProvider : IMediaSegmentProvider
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (IsItemDisabled(request.ItemId))
+        var item = _libraryManager.GetItemById(request.ItemId);
+        if (item is null || _libraryManager.GetLibraryOptions(item).DisabledMediaSegmentProviders.Contains(Name, StringComparer.OrdinalIgnoreCase))
+        {
+            return Task.FromResult<IReadOnlyList<MediaSegmentDto>>([]);
+        }
+
+        if (IsItemDisabled(item))
         {
             if (_logger.IsEnabled(LogLevel.Debug))
             {
@@ -136,8 +142,8 @@ public class SegmentProvider : IMediaSegmentProvider
     /// Specials (season 0) are disabled by default unless explicitly enabled via <see cref="Configuration.PluginConfiguration.EnabledSpecialsSeasonIds"/>.
     /// For movies, the check is against the movie ID directly.
     /// </summary>
-    /// <param name="itemId">The Jellyfin item ID to check.</param>
-    private bool IsItemDisabled(Guid itemId)
+    /// <param name="item">The Jellyfin item to check.</param>
+    private static bool IsItemDisabled(BaseItem item)
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null)
@@ -145,11 +151,9 @@ public class SegmentProvider : IMediaSegmentProvider
             return false;
         }
 
-        var item = _libraryManager.GetItemById(itemId);
-
         if (item is Movie)
         {
-            return config.DisabledMovieIds.Contains(itemId);
+            return config.DisabledMovieIds.Contains(item.Id);
         }
 
         if (item is not Episode episode)

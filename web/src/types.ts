@@ -1,5 +1,6 @@
 // ── Plugin configuration (mirrors PluginConfiguration.cs) ─────────────────────
 export interface PluginConfig {
+  EnableIntroSkipperIntegration?: boolean;
   DisabledSeriesIds: string[];
   DisabledSeasonIds: string[];
   DisabledMovieIds: string[];

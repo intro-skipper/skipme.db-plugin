@@ -9,6 +9,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using SkipMe.Db.Plugin.Configuration;
+using SkipMe.Db.Plugin.Services;
 
 namespace SkipMe.Db.Plugin;
 
@@ -19,20 +20,25 @@ namespace SkipMe.Db.Plugin;
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
+    private readonly SegmentRefreshService _segmentRefresh;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
     /// </summary>
     /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths"/> interface.</param>
     /// <param name="xmlSerializer">Instance of the <see cref="IXmlSerializer"/> interface.</param>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
+    /// <param name="segmentRefresh">Routes configuration changes to the active segment analyzer.</param>
     public Plugin(
         IApplicationPaths applicationPaths,
         IXmlSerializer xmlSerializer,
-        ILibraryManager libraryManager)
+        ILibraryManager libraryManager,
+        SegmentRefreshService segmentRefresh)
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
         LibraryManager = libraryManager;
+        _segmentRefresh = segmentRefresh;
     }
 
     /// <inheritdoc/>
@@ -53,6 +59,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the library manager used to resolve items by ID.
     /// </summary>
     public ILibraryManager LibraryManager { get; }
+
+    /// <inheritdoc/>
+    public override void UpdateConfiguration(BasePluginConfiguration configuration)
+    {
+        base.UpdateConfiguration(configuration);
+        if (_segmentRefresh.IsIntegrated)
+        {
+            _segmentRefresh.QueueRefresh();
+        }
+    }
 
     /// <inheritdoc/>
     public IEnumerable<PluginPageInfo> GetPages()

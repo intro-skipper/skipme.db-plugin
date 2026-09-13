@@ -4,12 +4,12 @@ SkipMe.db is a Jellyfin media segment provider that downloads crowd-sourced
 intro, credits, recap, preview, and commercial timestamps from the SkipMe.db API
 and exposes them through Jellyfin's media segments API.
 
-The plugin stores synced timestamps locally, lets you disable synced segments by
-library, series, season, or movie, and can share locally saved Intro Skipper
-timestamps back to SkipMe.db.
-
-> [!CAUTION]
-> Restrictions are in place due to bandwidth limitations, not as a means to hoard data.
+<div align="center">
+  <br/>
+<p align="center">
+  <a href=https://discord.gg/QB9U47BpX6"><img src="https://invidget.switchblade.xyz/AYZ7RJ3BuA"></a>
+</p>
+</div>
 
 ## Requirements
 

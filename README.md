@@ -32,7 +32,7 @@ and exposes them through Jellyfin's media segments API.
 
 ## First Sync
 
-The plugin runs a scheduled task named `Sync SkipMe.db Segment Database` in the
+The plugin runs an unlisted task named `Sync SkipMe.db Segment Database` in the
 `Intro Skipper` task category. The task runs immediately at startup the first
 time, then daily at 01:00 local time.
 

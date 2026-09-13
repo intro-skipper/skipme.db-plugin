@@ -61,8 +61,11 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
     /// <inheritdoc/>
     public string Name => "Sync SkipMe.db Segment Database";
 
+    /// <summary>Stable task key used to identify the scheduled task.</summary>
+    internal const string TaskKey = "SkipMeDbSync";
+
     /// <inheritdoc/>
-    public string Key => "SkipMeDbSync";
+    public string Key => TaskKey;
 
     /// <inheritdoc/>
     public string Description => "Fetches relevant crowd-sourced segment timestamps from the SkipMe.db API and stores them locally.";
@@ -84,10 +87,6 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
     {
         return
         [
-            new TaskTriggerInfo
-            {
-                Type = TaskTriggerInfoType.StartupTrigger,
-            },
             new TaskTriggerInfo
             {
                 Type = TaskTriggerInfoType.IntervalTrigger,

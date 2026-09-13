@@ -34,7 +34,7 @@ and exposes them through Jellyfin's media segments API.
 
 The plugin runs a scheduled task named `Sync SkipMe.db Segment Database` in the
 `Intro Skipper` task category. The task runs immediately at startup the first
-time, then every four hours.
+time, then daily at 01:00 local time.
 
 ## Enabling, Disabling, and Priority
 

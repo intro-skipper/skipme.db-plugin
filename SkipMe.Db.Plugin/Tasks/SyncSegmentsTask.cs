@@ -33,7 +33,7 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
     private const double ResponseProcessingProgressEnd = 95.0;
 
     /// <summary>Stable task key used to identify the scheduled task.</summary>
-    internal const string TaskKey = "SkipMeDbSync";
+    internal const string TaskKey = "SkipMeDaily";
 
     private static readonly SemaphoreSlim SyncExecutionGate = new(1, 1);
 
@@ -89,8 +89,8 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
         [
             new TaskTriggerInfo
             {
-                Type = TaskTriggerInfoType.IntervalTrigger,
-                IntervalTicks = TimeSpan.FromHours(4).Ticks,
+                Type = TaskTriggerInfoType.DailyTrigger,
+                TimeOfDayTicks = TimeSpan.FromHours(1).Ticks,
             },
         ];
     }

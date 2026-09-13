@@ -31,6 +31,8 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
     private const double MovieResponseProcessingProgressEnd = 55.0;
     private const double ShowLookupProgressEnd = 90.0;
     private const double ResponseProcessingProgressEnd = 95.0;
+    /// <summary>Stable task key used to identify the scheduled task.</summary>
+    internal const string TaskKey = "SkipMeDbSync";
 
     private static readonly SemaphoreSlim SyncExecutionGate = new(1, 1);
 
@@ -60,9 +62,6 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
 
     /// <inheritdoc/>
     public string Name => "Sync SkipMe.db Segment Database";
-
-    /// <summary>Stable task key used to identify the scheduled task.</summary>
-    internal const string TaskKey = "SkipMeDbSync";
 
     /// <inheritdoc/>
     public string Key => TaskKey;

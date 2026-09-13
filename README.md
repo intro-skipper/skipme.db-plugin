@@ -33,7 +33,8 @@ timestamps back to SkipMe.db.
 ## First Sync
 
 The plugin runs a scheduled task named `Sync SkipMe.db Segment Database` in the
-`Intro Skipper` task category. The task runs daily at midnight.
+`Intro Skipper` task category. The task runs immediately at startup and then
+every four hours.
 
 ## Enabling, Disabling, and Priority
 

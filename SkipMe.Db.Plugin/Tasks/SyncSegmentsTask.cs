@@ -86,8 +86,12 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
         [
             new TaskTriggerInfo
             {
-                Type = TaskTriggerInfoType.DailyTrigger,
-                TimeOfDayTicks = TimeSpan.Zero.Ticks,
+                Type = TaskTriggerInfoType.StartupTrigger,
+            },
+            new TaskTriggerInfo
+            {
+                Type = TaskTriggerInfoType.IntervalTrigger,
+                IntervalTicks = TimeSpan.FromHours(4).Ticks,
             },
         ];
     }

@@ -22,7 +22,10 @@ namespace SkipMe.Db.Plugin.Services;
 public class SkipMeApiClient
 {
     private const int MaxRequestBytes = 100 * 1024 * 1024;
-    private const int MaxBatchSegments = 1000;
+    // Cloudflare D1 allows 50 read subrequests per Worker invocation on the
+    // Workers Free plan. Keep each API request within that limit because the
+    // service may issue one database lookup per item in the incoming batch.
+    private const int MaxLookupsPerRequest = 50;
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -127,7 +130,7 @@ public class SkipMeApiClient
                 continue;
             }
 
-            var result = await PostBatchWithFallbackAsync<TRequest, TResponse>(
+            var result = await PostBatchOnceAsync<TRequest, TResponse>(
                 client,
                 url,
                 batch,
@@ -141,7 +144,7 @@ public class SkipMeApiClient
         return new ApiBatchResult<TResponse>(results, completed, usageLimitExceeded);
     }
 
-    private async Task<ApiBatchResult<TResponse>> PostBatchWithFallbackAsync<TRequest, TResponse>(
+    private async Task<ApiBatchResult<TResponse>> PostBatchOnceAsync<TRequest, TResponse>(
         HttpClient client,
         Uri url,
         IReadOnlyList<TRequest> batch,
@@ -153,7 +156,11 @@ public class SkipMeApiClient
         try
         {
             var result = await PostSingleBatchAsync<TRequest, TResponse>(client, url, batch, cancellationToken).ConfigureAwait(false);
-            onBatchCompleted?.Invoke(batch.Count);
+            if (result.Completed)
+            {
+                onBatchCompleted?.Invoke(batch.Count);
+            }
+
             return result;
         }
         catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException)
@@ -163,45 +170,16 @@ public class SkipMeApiClient
                 return FailedBatch<TResponse>(batch.Count);
             }
 
-            if (batch.Count <= 1)
-            {
-                if (_logger.IsEnabled(LogLevel.Warning))
-                {
-                    _logger.LogWarning(ex, "Failed to fetch {BatchCount} segment lookup(s) from SkipMe.db API {Endpoint}", batch.Count, endpoint);
-                }
-
-                return FailedBatch<TResponse>(batch.Count);
-            }
-
-            var midpoint = batch.Count / 2;
             if (_logger.IsEnabled(LogLevel.Warning))
             {
                 _logger.LogWarning(
                     ex,
-                    "Timed out fetching {BatchCount} segment lookup(s) from SkipMe.db API {Endpoint}; retrying as {FirstBatchCount} and {SecondBatchCount} lookup batch(es)",
+                    "Timed out fetching {BatchCount} segment lookup(s) from SkipMe.db API {Endpoint}; not retrying to avoid duplicating database work",
                     batch.Count,
-                    endpoint,
-                    midpoint,
-                    batch.Count - midpoint);
+                    endpoint);
             }
 
-            var first = await PostBatchWithFallbackAsync<TRequest, TResponse>(
-                client,
-                url,
-                batch.Take(midpoint).ToList(),
-                onBatchCompleted,
-                cancellationToken).ConfigureAwait(false);
-            var second = await PostBatchWithFallbackAsync<TRequest, TResponse>(
-                client,
-                url,
-                batch.Skip(midpoint).ToList(),
-                onBatchCompleted,
-                cancellationToken).ConfigureAwait(false);
-
-            return new ApiBatchResult<TResponse>(
-                first.Responses.Concat(second.Responses).ToList(),
-                first.Completed && second.Completed,
-                first.UsageLimitExceeded || second.UsageLimitExceeded);
+            return FailedBatch<TResponse>(batch.Count);
         }
         catch (HttpRequestException ex)
         {
@@ -304,7 +282,7 @@ public class SkipMeApiClient
                 throw new InvalidOperationException("A single SkipMe.db batch item exceeds the 100MB request size limit.");
             }
 
-            if (current.Count >= MaxBatchSegments)
+            if (current.Count >= MaxLookupsPerRequest)
             {
                 yield return current;
                 current = [];

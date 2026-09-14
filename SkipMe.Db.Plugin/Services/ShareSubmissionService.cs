@@ -29,6 +29,9 @@ namespace SkipMe.Db.Plugin.Services;
 /// </summary>
 public sealed class ShareSubmissionService
 {
+    // The sharing service accepts no more than 200 write items in one request.
+    private const int MaxWriteItemsPerRequest = 200;
+
     private readonly ILibraryManager _libraryManager;
     private readonly SegmentStore _segmentStore;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -146,24 +149,24 @@ public sealed class ShareSubmissionService
 
         if (seasonRequests.Count > 0)
         {
-            var seasonResult = await SubmitAsync(http, "/submit/season", seasonRequests, cancellationToken).ConfigureAwait(false);
-            if (seasonResult.Ok)
+            foreach (var seasonBatch in ChunkSeasonWriteRequests(seasonRequests))
             {
-                ok = true;
-                sharedSegments += seasonResult.Submitted;
-                sharedShowSeasons = seasonRequests.Count;
-                var seasonTimestamps = seasonRequests.SelectMany(s => s.Items).Select(i => i.Timestamp).ToList();
-                // The API only returns an aggregate count.  If it accepted a partial batch,
-                // there is no safe way to identify which individual timestamps were accepted.
-                // Leave the whole batch unrecorded so a retry cannot hide newly added segments.
-                if (seasonResult.Submitted == seasonTimestamps.Count)
+                var seasonResult = await SubmitAsync(http, "/submit/season", seasonBatch, cancellationToken).ConfigureAwait(false);
+                if (seasonResult.Ok)
                 {
-                    await _segmentStore.RecordSharedTimestampsAsync(seasonTimestamps).ConfigureAwait(false);
+                    ok = true;
+                    sharedSegments += seasonResult.Submitted;
+                    sharedShowSeasons += seasonBatch.Count;
+                    var seasonTimestamps = seasonBatch.SelectMany(s => s.Items).Select(i => i.Timestamp).ToList();
+                    // The API only returns an aggregate count.  If it accepted a partial batch,
+                    // there is no safe way to identify which individual timestamps were accepted.
+                    // Leave the whole batch unrecorded so a retry cannot hide newly added segments.
+                    if (seasonResult.Submitted == seasonTimestamps.Count)
+                    {
+                        await _segmentStore.RecordSharedTimestampsAsync(seasonTimestamps).ConfigureAwait(false);
+                    }
                 }
-            }
-            else
-            {
-                if (!string.IsNullOrWhiteSpace(seasonResult.Error))
+                else if (!string.IsNullOrWhiteSpace(seasonResult.Error))
                 {
                     errors.Add($"Season share failed: {seasonResult.Error}");
                 }
@@ -172,23 +175,23 @@ public sealed class ShareSubmissionService
 
         if (movieRequests.Count > 0)
         {
-            var movieResult = await SubmitAsync(http, "/submit/collection", movieRequests, cancellationToken).ConfigureAwait(false);
-            if (movieResult.Ok)
+            foreach (var movieBatch in ChunkWriteItems(movieRequests))
             {
-                ok = true;
-                sharedSegments += movieResult.Submitted;
-                sharedMovies = movieRequests.Count;
-                var movieTimestamps = movieRequests.Select(m => m.Timestamp).ToList();
-                // See the season batch above: only persist history when every individual
-                // timestamp in this request was confirmed by the aggregate response.
-                if (movieResult.Submitted == movieTimestamps.Count)
+                var movieResult = await SubmitAsync(http, "/submit/collection", movieBatch, cancellationToken).ConfigureAwait(false);
+                if (movieResult.Ok)
                 {
-                    await _segmentStore.RecordSharedTimestampsAsync(movieTimestamps).ConfigureAwait(false);
+                    ok = true;
+                    sharedSegments += movieResult.Submitted;
+                    sharedMovies += movieBatch.Count;
+                    var movieTimestamps = movieBatch.Select(m => m.Timestamp).ToList();
+                    // See the season batch above: only persist history when every individual
+                    // timestamp in this request was confirmed by the aggregate response.
+                    if (movieResult.Submitted == movieTimestamps.Count)
+                    {
+                        await _segmentStore.RecordSharedTimestampsAsync(movieTimestamps).ConfigureAwait(false);
+                    }
                 }
-            }
-            else
-            {
-                if (!string.IsNullOrWhiteSpace(movieResult.Error))
+                else if (!string.IsNullOrWhiteSpace(movieResult.Error))
                 {
                     errors.Add($"Movie share failed: {movieResult.Error}");
                 }
@@ -507,6 +510,63 @@ public sealed class ShareSubmissionService
         }
 
         return requests;
+    }
+
+    private static IEnumerable<List<SeasonSubmitRequest>> ChunkSeasonWriteRequests(
+        IReadOnlyList<SeasonSubmitRequest> requests)
+    {
+        var current = new List<SeasonSubmitRequest>();
+        var currentItemCount = 0;
+
+        foreach (var request in requests)
+        {
+            var offset = 0;
+            while (offset < request.Items.Count)
+            {
+                var remainingCapacity = MaxWriteItemsPerRequest - currentItemCount;
+                var itemCount = Math.Min(remainingCapacity, request.Items.Count - offset);
+                var items = request.Items.GetRange(offset, itemCount);
+                current.Add(CopySeasonRequest(request, items));
+                currentItemCount += itemCount;
+                offset += itemCount;
+
+                if (currentItemCount == MaxWriteItemsPerRequest)
+                {
+                    yield return current;
+                    current = [];
+                    currentItemCount = 0;
+                }
+            }
+        }
+
+        if (current.Count > 0)
+        {
+            yield return current;
+        }
+    }
+
+    private static IEnumerable<List<T>> ChunkWriteItems<T>(IReadOnlyList<T> items)
+    {
+        for (var offset = 0; offset < items.Count; offset += MaxWriteItemsPerRequest)
+        {
+            yield return items.Skip(offset).Take(MaxWriteItemsPerRequest).ToList();
+        }
+    }
+
+    private static SeasonSubmitRequest CopySeasonRequest(
+        SeasonSubmitRequest source,
+        List<SeasonSubmitItem> items)
+    {
+        return new SeasonSubmitRequest
+        {
+            TvdbSeriesId = source.TvdbSeriesId,
+            TvdbSeasonId = source.TvdbSeasonId,
+            TmdbId = source.TmdbId,
+            ImdbSeriesId = source.ImdbSeriesId,
+            AniListId = source.AniListId,
+            Season = source.Season,
+            Items = items,
+        };
     }
 
     [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities", Justification = "IN-clause placeholders are generated internally and each value is parameterized.")]

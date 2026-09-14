@@ -23,9 +23,9 @@ public class SkipMeApiClient
 {
     private const int MaxRequestBytes = 100 * 1024 * 1024;
     // Cloudflare D1 allows 50 read subrequests per Worker invocation on the
-    // Workers Free plan. Keep each API request within that limit because the
-    // service may issue one database lookup per item in the incoming batch.
-    private const int MaxLookupsPerRequest = 50;
+    // Workers Free plan. Batch by input lookup item, not by the number of
+    // segment timestamps returned for those items.
+    private const int MaxItemsPerRequest = 50;
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -121,11 +121,11 @@ public class SkipMeApiClient
         var client = _httpClientFactory.CreateClient(nameof(SkipMeApiClient));
         var url = new Uri($"{ApiConfiguration.Url.TrimEnd('/')}{endpointPath}");
 
-        foreach (var batch in ChunkRequests(requests))
+        foreach (var itemBatch in ChunkItems(requests))
         {
             if (usageLimitExceeded)
             {
-                results.AddRange(Enumerable.Repeat<TResponse?>(default, batch.Count));
+                results.AddRange(Enumerable.Repeat<TResponse?>(default, itemBatch.Count));
                 completed = false;
                 continue;
             }
@@ -133,7 +133,7 @@ public class SkipMeApiClient
             var result = await PostBatchOnceAsync<TRequest, TResponse>(
                 client,
                 url,
-                batch,
+                itemBatch,
                 onBatchCompleted,
                 cancellationToken).ConfigureAwait(false);
             completed &= result.Completed;
@@ -147,7 +147,7 @@ public class SkipMeApiClient
     private async Task<ApiBatchResult<TResponse>> PostBatchOnceAsync<TRequest, TResponse>(
         HttpClient client,
         Uri url,
-        IReadOnlyList<TRequest> batch,
+        IReadOnlyList<TRequest> itemBatch,
         Action<int>? onBatchCompleted,
         CancellationToken cancellationToken)
     {
@@ -155,10 +155,10 @@ public class SkipMeApiClient
 
         try
         {
-            var result = await PostSingleBatchAsync<TRequest, TResponse>(client, url, batch, cancellationToken).ConfigureAwait(false);
+            var result = await PostSingleBatchAsync<TRequest, TResponse>(client, url, itemBatch, cancellationToken).ConfigureAwait(false);
             if (result.Completed)
             {
-                onBatchCompleted?.Invoke(batch.Count);
+                onBatchCompleted?.Invoke(itemBatch.Count);
             }
 
             return result;
@@ -167,39 +167,39 @@ public class SkipMeApiClient
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                return FailedBatch<TResponse>(batch.Count);
+                return FailedBatch<TResponse>(itemBatch.Count);
             }
 
             if (_logger.IsEnabled(LogLevel.Warning))
             {
                 _logger.LogWarning(
                     ex,
-                    "Timed out fetching {BatchCount} segment lookup(s) from SkipMe.db API {Endpoint}; not retrying to avoid duplicating database work",
-                    batch.Count,
+                    "Timed out fetching {BatchCount} lookup item(s) from SkipMe.db API {Endpoint}; not retrying to avoid duplicating database work",
+                    itemBatch.Count,
                     endpoint);
             }
 
-            return FailedBatch<TResponse>(batch.Count);
+            return FailedBatch<TResponse>(itemBatch.Count);
         }
         catch (HttpRequestException ex)
         {
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning(ex, "Failed to fetch {BatchCount} segment lookup(s) from SkipMe.db API {Endpoint}", batch.Count, endpoint);
+                _logger.LogWarning(ex, "Failed to fetch {BatchCount} lookup item(s) from SkipMe.db API {Endpoint}", itemBatch.Count, endpoint);
             }
 
-            return FailedBatch<TResponse>(batch.Count);
+            return FailedBatch<TResponse>(itemBatch.Count);
         }
     }
 
     private async Task<ApiBatchResult<TResponse>> PostSingleBatchAsync<TRequest, TResponse>(
         HttpClient client,
         Uri url,
-        IReadOnlyList<TRequest> batch,
+        IReadOnlyList<TRequest> itemBatch,
         CancellationToken cancellationToken)
     {
         var endpoint = GetEndpointName(url);
-        using var response = await client.PostAsJsonAsync(url, batch, _jsonOptions, cancellationToken).ConfigureAwait(false);
+        using var response = await client.PostAsJsonAsync(url, itemBatch, _jsonOptions, cancellationToken).ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -213,7 +213,7 @@ public class SkipMeApiClient
                 {
                     _logger.LogWarning(
                         "SkipMe.db API usage limit reached while fetching {BatchCount} item(s) from {Endpoint}: {ResponseBody}",
-                        batch.Count,
+                        itemBatch.Count,
                         endpoint,
                         responseBody);
                 }
@@ -223,19 +223,19 @@ public class SkipMeApiClient
                         "SkipMe.db API returned {StatusCode} for {Endpoint} while fetching {BatchCount} item(s): {ResponseBody}",
                         (int)response.StatusCode,
                         endpoint,
-                        batch.Count,
+                        itemBatch.Count,
                         responseBody);
                 }
             }
 
             return new ApiBatchResult<TResponse>(
-                Enumerable.Repeat<TResponse?>(default, batch.Count).ToList(),
+                Enumerable.Repeat<TResponse?>(default, itemBatch.Count).ToList(),
                 false,
                 usageLimitExceeded);
         }
 
         var payload = await response.Content.ReadFromJsonAsync<List<TResponse?>>(cancellationToken).ConfigureAwait(false) ?? [];
-        if (payload.Count == batch.Count)
+        if (payload.Count == itemBatch.Count)
         {
             // Null entries represent valid no-result lookups and retain their position in the batch.
             return new ApiBatchResult<TResponse>(payload, true);
@@ -246,12 +246,12 @@ public class SkipMeApiClient
             _logger.LogWarning(
                 "SkipMe.db API response count mismatch for {Endpoint}: expected {ExpectedCount}, got {ActualCount}",
                 endpoint,
-                batch.Count,
+                itemBatch.Count,
                 payload.Count);
         }
 
-        var results = new List<TResponse?>(batch.Count);
-        for (var i = 0; i < batch.Count; i++)
+        var results = new List<TResponse?>(itemBatch.Count);
+        for (var i = 0; i < itemBatch.Count; i++)
         {
             results.Add(i < payload.Count ? payload[i] : default);
         }
@@ -269,7 +269,7 @@ public class SkipMeApiClient
         return new ApiBatchResult<TResponse>(Enumerable.Repeat<TResponse?>(default, count).ToList(), false);
     }
 
-    private static IEnumerable<List<TRequest>> ChunkRequests<TRequest>(IReadOnlyList<TRequest> requests)
+    private static IEnumerable<List<TRequest>> ChunkItems<TRequest>(IReadOnlyList<TRequest> requests)
     {
         var current = new List<TRequest>();
         var currentSize = 2; // []
@@ -282,7 +282,7 @@ public class SkipMeApiClient
                 throw new InvalidOperationException("A single SkipMe.db batch item exceeds the 100MB request size limit.");
             }
 
-            if (current.Count >= MaxLookupsPerRequest)
+            if (current.Count >= MaxItemsPerRequest)
             {
                 yield return current;
                 current = [];

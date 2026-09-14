@@ -1,24 +1,27 @@
 # SkipMe.db Jellyfin Plugin
 
-SkipMe.db is a Jellyfin media segment provider that downloads crowd-sourced
-intro, credits, recap, preview, and commercial timestamps from the SkipMe.db API
-and exposes them through Jellyfin's media segments API.
+SkipMe.db is a Jellyfin media segment provider for crowd-sourced intro, recap,
+preview, credits, and commercial timestamps. It synchronizes the data into a
+local SQLite cache and makes applicable segments available to Jellyfin for
+movies and TV episodes.
+
+The plugin also provides an optional sharing workflow for contributing local
+Intro Skipper timestamps back to SkipMe.db.
 
 <div align="center">
   <br/>
-<p align="center">
-  <a href=https://discord.gg/QB9U47BpX6"><img src="https://invidget.switchblade.xyz/AYZ7RJ3BuA"></a>
-</p>
+  <p align="center">
+    <a href="https://discord.gg/QB9U47BpX6"><img src="https://invidget.switchblade.xyz/AYZ7RJ3BuA"></a>
+  </p>
 </div>
 
 ## Requirements
 
-- Jellyfin 12.0.0-rc2 or newer compatible 12 builds
+- Jellyfin 12.0.0-rc2 or a compatible Jellyfin 12 build
 - .NET 10 runtime support on the Jellyfin host
-- Network access from Jellyfin to:
-  - `https://db.skipme.workers.dev`
-  - `https://api.tvmaze.com` when sharing show timestamps that need missing
-    external IDs resolved
+- Network access from Jellyfin to the SkipMe.db service
+- Optional network access to TVMaze when sharing shows whose external IDs are
+  missing
 
 ## Installation
 
@@ -28,96 +31,83 @@ and exposes them through Jellyfin's media segments API.
    - Linux: `/var/lib/jellyfin/plugins/SkipMe.db/`
    - Windows: `%ProgramData%\Jellyfin\Server\plugins\SkipMe.db\`
 4. Restart Jellyfin.
-5. Confirm that `SkipMe.db` appears under Dashboard -> Plugins.
+5. Confirm that `SkipMe.db` appears under Dashboard → Plugins.
 
-## First Sync
+## How synchronization works
 
-The plugin runs an unlisted task named `Sync SkipMe.db Segment Database` in the
-`Intro Skipper` task category. The task runs immediately at startup the first
-time, then daily at 01:00 local time.
+The plugin scans non-virtual movies and TV episodes in the Jellyfin library,
+uses available TMDB, TVDB, IMDb, and AniList identifiers to match them, and
+stores the resulting timestamps locally. TV episodes are grouped into series
+lookups where possible; episodes that cannot use a series lookup can fall back
+to an individual media lookup.
 
-## Enabling, Disabling, and Priority
+Synchronization is provided by the unlisted `Sync SkipMe.db Segment Database`
+task in the `Intro Skipper` category. It runs once automatically after the
+plugin is first loaded, then daily at 01:00 local time. The task can report
+progress, avoids overlapping runs, and keeps the existing cache if a run is
+cancelled, incomplete, or reaches the remote service's daily usage limit.
 
-Jellyfin controls media segment providers per library.
+Older cache locations are migrated when possible. The plugin uses the local
+cache when serving segments, so a temporary service failure does not remove
+previously synchronized data.
 
-1. Navigate to Dashboard -> Libraries -> Libraries.
-2. Open the desired library menu (`...`) -> Manage library.
-3. Scroll to `Media segment providers`.
+## Enabling the provider
+
+Jellyfin controls media segment providers per library:
+
+1. Open Dashboard → Libraries → Libraries.
+2. Open the desired library menu (`...`) and choose Manage library.
+3. Find Media segment providers.
 4. Enable `SkipMe.db` and adjust provider priority as needed.
 
-Inside the plugin settings page, the `Skip` tab lets you suppress synced
-SkipMe.db data for individual series, seasons, or movies. Disabled items remain
-in the local database, but the plugin does not surface them to Jellyfin.
+Only movies and TV episodes are supported. The provider maps recognized
+SkipMe.db segment types to Jellyfin media segment types and ignores invalid or
+unknown timestamp data.
 
-Specials seasons, season 0, are disabled by default. Enable a specials season
-explicitly in the plugin settings if you want those timestamps to appear.
+## Plugin settings
 
-## Plugin Settings
+Open Dashboard → Plugins → SkipMe.db.
 
-Open Dashboard -> Plugins -> SkipMe.db.
+### Skip
 
-- `Skip` tab: choose which synced SkipMe.db segments Jellyfin can use.
-- `Share` tab: choose which local Intro Skipper timestamps to upload to
-  SkipMe.db.
-- Filter box: search large libraries before changing toggles or sharing.
-- `Save Settings`: persists the current Skip tab enable/disable choices.
-- `Share Enabled Items`: submits the currently enabled Share tab items.
+The Skip tab controls which synchronized segments Jellyfin may use:
 
-Library-level provider disabling in Jellyfin is respected by the settings page:
-libraries where `SkipMe.db` is disabled as a media segment provider are hidden
-from the plugin item list.
+- Toggle an entire library, series, season, or movie.
+- Expand a series to manage individual seasons.
+- Season 0 (Specials) is disabled by default and must be explicitly enabled.
+- Disabled items remain in the local cache but are not surfaced to Jellyfin.
+- Save the changes with `Save Settings`.
 
-## Sharing Segments to SkipMe.db
+Libraries where `SkipMe.db` is disabled as a Jellyfin media segment provider
+are not shown in the settings page. The filter box searches the displayed
+library items, and the page shows a notice when a very large library cannot be
+loaded in one result set.
 
-The Share tab reads timestamps from Intro Skipper's local database at
-`introskipper/introskipper.db` under Jellyfin's data directory.
+### Share
 
-Sharing behavior:
+The Share tab reads local timestamps from Intro Skipper's SQLite database.
 
-- Only items enabled in the Share tab are submitted.
-- Existing local share history is used to avoid re-submitting the same timestamp
-  within a one second tolerance.
-- Segment editor entries are preferred over auto-detected timestamps when both
-  exist for the same item and segment type.
-- Movies require duration plus at least one supported provider ID: TMDb, IMDb,
-  TVDB, or AniList.
-- Shows use season, episode, duration, and available provider IDs. If series IDs
-  are missing, the plugin may query TVMaze to fill in TVDB or IMDb IDs.
+Sharing is opt-in: items start disabled on each page load, and only items
+enabled in the Share tab are submitted. The page displays counts for
+timestamps available to share and reports the result after each run.
 
-After a share finishes, the settings page reports how many segments were shared
-and how many were skipped because they were already shared, missing metadata, or
-had no local Intro Skipper timestamps.
+Sharing behavior includes:
 
-## Building from Source
+- Movies and TV episodes are supported.
+- Valid duration and at least one supported external identifier are required.
+- Supported identifiers include TMDB, TVDB, IMDb, and AniList, with episode,
+  season, and series metadata used as appropriate.
+- If a show has no usable series identifiers, the plugin may query TVMaze to
+  resolve TVDB or IMDb identifiers. Results are cached per Jellyfin series.
+- Intro Skipper segment-editor entries take priority over auto-detected entries
+  of the same type; when priorities are equal, the earliest valid entry is
+  selected.
+- One canonical timestamp per segment type is considered for each item.
+- Local share history prevents re-submitting matching timestamps within one
+  second for the item, segment type, start, end, and duration.
 
-Prerequisites:
-
-- .NET SDK 10.x
-- Node.js 22.x
-- npm
-
-Build the plugin:
-
-```powershell
-npm ci --prefix web
-dotnet restore SkipMe.Db.Plugin.sln
-dotnet build SkipMe.Db.Plugin.sln --configuration Release --no-restore
-```
-
-The web settings UI is built automatically during the .NET build and embedded in
-the plugin assembly. The release DLL is written to:
-
-```text
-SkipMe.Db.Plugin/bin/Release/net10.0/SkipMe.Db.Plugin.dll
-```
-
-For front-end-only development:
-
-```powershell
-cd web
-npm ci
-npm run dev
-```
+The completion message reports shared timestamps and items skipped because
+they were already shared, lacked metadata, or had no valid local timestamp.
 
 ## License
 

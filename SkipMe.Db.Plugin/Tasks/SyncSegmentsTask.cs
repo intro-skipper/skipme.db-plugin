@@ -34,12 +34,14 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
 
     /// <summary>Stable task key used to identify the scheduled task.</summary>
     internal const string TaskKey = "SkipMeDaily";
+    private const string MediaSegmentScanTaskKey = "TaskExtractMediaSegments";
 
     private static readonly SemaphoreSlim SyncExecutionGate = new(1, 1);
 
     private readonly ILibraryManager _libraryManager;
     private readonly SkipMeApiClient _apiClient;
     private readonly SegmentStore _segmentStore;
+    private readonly ITaskManager _taskManager;
     private readonly ILogger<SyncSegmentsTask> _logger;
 
     /// <summary>
@@ -48,16 +50,19 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
     /// <param name="libraryManager">The Jellyfin library manager.</param>
     /// <param name="apiClient">The SkipMe.db API client.</param>
     /// <param name="segmentStore">The local segment store.</param>
+    /// <param name="taskManager">The Jellyfin task manager used to trigger media segment extraction.</param>
     /// <param name="logger">The logger.</param>
     public SyncSegmentsTask(
         ILibraryManager libraryManager,
         SkipMeApiClient apiClient,
         SegmentStore segmentStore,
+        ITaskManager taskManager,
         ILogger<SyncSegmentsTask> logger)
     {
         _libraryManager = libraryManager;
         _apiClient = apiClient;
         _segmentStore = segmentStore;
+        _taskManager = taskManager;
         _logger = logger;
     }
 
@@ -339,11 +344,37 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
                     newSegments.Count,
                     totalItems);
             }
+
+            if (newSegments.Count > 0)
+            {
+                TriggerMediaSegmentScan();
+            }
+            else if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("SkipMe.db sync returned no segment data; media segment scan will not be triggered.");
+            }
         }
         finally
         {
             SyncExecutionGate.Release();
         }
+    }
+
+    private void TriggerMediaSegmentScan()
+    {
+        var worker = _taskManager.ScheduledTasks
+            .FirstOrDefault(t => string.Equals(t.ScheduledTask.Key, MediaSegmentScanTaskKey, StringComparison.Ordinal));
+
+        if (worker is null)
+        {
+            _logger.LogWarning(
+                "Could not find scheduled task with key '{TaskKey}' — media segment scan will not be triggered",
+                MediaSegmentScanTaskKey);
+            return;
+        }
+
+        _logger.LogInformation("Queuing Jellyfin media segment scan ('{TaskKey}')", MediaSegmentScanTaskKey);
+        _taskManager.QueueScheduledTask(worker.ScheduledTask, new TaskOptions());
     }
 
     // Instance method because it resolves season context via _libraryManager through GetEpisodeProviderIds().

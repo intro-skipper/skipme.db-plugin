@@ -479,13 +479,7 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
 
     private static int? TryGetIntProviderId(BaseItem? item, string provider)
     {
-        // Only positive ids are real. Jellyfin stores provider ids as strings and does not
-        // validate them as numbers, and a negative placeholder is an established convention
-        // for "do not match this item" - the anime providers only search by name when the id
-        // is empty, so a deliberately invalid one suppresses a wrong match. Forwarding such a
-        // value makes the API reject the entire batch, and NumberStyles.Integer parses it
-        // happily because it allows a leading sign. Returning null instead drops the field
-        // from the request body via JsonIgnoreCondition.WhenWritingNull.
+        // Jellyfin may store negative numeric placeholders to suppress provider matching.
         if (item?.ProviderIds.TryGetValue(provider, out var raw) == true
             && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             && parsed > 0)

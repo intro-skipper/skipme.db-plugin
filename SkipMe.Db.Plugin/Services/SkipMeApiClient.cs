@@ -147,7 +147,7 @@ public class SkipMeApiClient
     private async Task<ApiBatchResult<TResponse>> PostBatchOnceAsync<TRequest, TResponse>(
         HttpClient client,
         Uri url,
-        IReadOnlyList<TRequest> itemBatch,
+        List<TRequest> itemBatch,
         Action<int>? onBatchCompleted,
         CancellationToken cancellationToken)
     {
@@ -195,7 +195,7 @@ public class SkipMeApiClient
     private async Task<ApiBatchResult<TResponse>> PostSingleBatchAsync<TRequest, TResponse>(
         HttpClient client,
         Uri url,
-        IReadOnlyList<TRequest> itemBatch,
+        List<TRequest> itemBatch,
         CancellationToken cancellationToken)
     {
         var endpoint = GetEndpointName(url);

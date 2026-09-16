@@ -718,8 +718,11 @@ public sealed class ShareSubmissionService
 
     private static int? TryGetIntProviderId(BaseItem? item, string provider)
     {
+        // Jellyfin may store negative numeric placeholders to suppress provider matching.
+        // Do not forward those values to the SkipMe.db write payloads.
         if (item?.ProviderIds.TryGetValue(provider, out var raw) == true
-            && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            && parsed > 0)
         {
             return parsed;
         }

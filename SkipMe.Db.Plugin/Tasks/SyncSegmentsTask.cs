@@ -373,7 +373,11 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
             return;
         }
 
-        _logger.LogInformation("Queuing Jellyfin media segment scan ('{TaskKey}')", MediaSegmentScanTaskKey);
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation("Queuing Jellyfin media segment scan ('{TaskKey}')", MediaSegmentScanTaskKey);
+        }
+
         _taskManager.QueueScheduledTask(worker.ScheduledTask, new TaskOptions());
     }
 

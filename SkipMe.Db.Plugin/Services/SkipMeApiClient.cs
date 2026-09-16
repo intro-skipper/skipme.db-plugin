@@ -204,8 +204,7 @@ public class SkipMeApiClient
         if (!response.IsSuccessStatusCode)
         {
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            var usageLimitExceeded = response.StatusCode == System.Net.HttpStatusCode.InternalServerError
-                && responseBody.Contains("daily free tier limit", StringComparison.OrdinalIgnoreCase);
+            var usageLimitExceeded = response.StatusCode == System.Net.HttpStatusCode.InternalServerError;
 
             if (_logger.IsEnabled(LogLevel.Warning))
             {

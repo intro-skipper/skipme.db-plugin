@@ -170,6 +170,49 @@ public sealed class SegmentStore : IDisposable
     }
 
     /// <summary>
+    /// Returns all stored segments grouped by Jellyfin item ID.
+    /// </summary>
+    /// <returns>Stored segments keyed by Jellyfin item ID.</returns>
+    public IReadOnlyDictionary<Guid, List<StoredSegment>> GetAllSegmentsByItemId()
+    {
+        _semaphore.Wait();
+        try
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "SELECT ItemId, Type, StartMs, EndMs FROM Segments";
+
+            using var reader = cmd.ExecuteReader();
+            var results = new Dictionary<Guid, List<StoredSegment>>();
+            while (reader.Read())
+            {
+                if (!Guid.TryParse(reader.GetString(0), out var itemId))
+                {
+                    continue;
+                }
+
+                if (!results.TryGetValue(itemId, out var segments))
+                {
+                    segments = [];
+                    results[itemId] = segments;
+                }
+
+                segments.Add(new StoredSegment
+                {
+                    Type = reader.GetString(1),
+                    StartMs = reader.GetInt64(2),
+                    EndMs = reader.GetInt64(3),
+                });
+            }
+
+            return results;
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    /// <summary>
     /// Removes stored segments for a single Jellyfin item.
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID.</param>

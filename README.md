@@ -39,7 +39,9 @@ The plugin scans non-virtual movies and TV episodes in the Jellyfin library,
 uses available TMDB, TVDB, IMDb, and AniList identifiers to match them, and
 stores the resulting timestamps locally. TV episodes are grouped into series
 lookups where possible; episodes that cannot use a series lookup can fall back
-to an individual media lookup.
+to an individual media lookup. Later synchronizations reuse timestamps already
+stored locally and query only items that have not been retrieved yet; items for
+which the service returned no timestamps remain eligible for a later retry.
 
 Synchronization is provided by the unlisted `Sync SkipMe.db Segment Database`
 task in the `Intro Skipper` category. It runs once automatically after the

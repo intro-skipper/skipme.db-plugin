@@ -113,8 +113,6 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
         {
             progress.Report(0.0);
 
-            var newSegments = new Dictionary<Guid, List<StoredSegment>>();
-
             var movies = _libraryManager
                 .GetItemList(new InternalItemsQuery { IncludeItemTypes = [Jellyfin.Data.Enums.BaseItemKind.Movie], IsVirtualItem = false, Recursive = true })
                 .OfType<Movie>()
@@ -125,8 +123,22 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
                 .OfType<Episode>()
                 .ToList();
 
+            // Existing segment rows are also the cache marker: only items without
+            // previously retrieved timestamps need another remote lookup. Keep the
+            // rows for items still present in the library so a partial lookup does
+            // not remove cached data during the atomic replacement below.
+            var existingSegments = _segmentStore.GetAllSegmentsByItemId();
+            var currentItemIds = movies
+                .Select(movie => movie.Id)
+                .Concat(allEpisodes.Select(episode => episode.Id))
+                .ToHashSet();
+            var newSegments = existingSegments
+                .Where(pair => currentItemIds.Contains(pair.Key))
+                .ToDictionary(pair => pair.Key, pair => pair.Value);
+
             var totalItems = movies.Count + allEpisodes.Count;
             var processed = 0;
+            var retrievedNewSegments = false;
             var movieLookupMap = new Dictionary<string, MovieLookupWorkItem>(StringComparer.Ordinal);
             var showLookupMap = new Dictionary<string, ShowLookupWorkItem>(StringComparer.Ordinal);
 
@@ -142,6 +154,13 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                if (existingSegments.ContainsKey(movie.Id))
+                {
+                    processed++;
+                    ReportProgress(progress, processed, totalItems, 0.0, DiscoveryProgressEnd);
+                    continue;
+                }
+
                 var request = BuildMovieLookupRequest(movie);
                 if (request is not null)
                 {
@@ -155,6 +174,13 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
             foreach (var episode in allEpisodes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                if (existingSegments.ContainsKey(episode.Id))
+                {
+                    processed++;
+                    ReportProgress(progress, processed, totalItems, 0.0, DiscoveryProgressEnd);
+                    continue;
+                }
 
                 if (episode.IndexNumber is { } episodeNumber && episode.ParentIndexNumber is { } seasonNumber)
                 {
@@ -191,7 +217,7 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
             if (_logger.IsEnabled(LogLevel.Information))
             {
                 _logger.LogInformation(
-                    "Querying SkipMe.db with {MovieLookupCount} unique movie/episode fallback lookup(s) and {ShowLookupCount} unique show lookup(s)",
+                    "Querying SkipMe.db with {MovieLookupCount} unique uncached movie/episode fallback lookup(s) and {ShowLookupCount} unique uncached show lookup(s)",
                     movieLookups.Count,
                     showLookupMap.Count);
             }
@@ -239,6 +265,7 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
                 var segments = BuildStoredSegmentsFromMedia(response);
                 if (segments.Count > 0)
                 {
+                    retrievedNewSegments = true;
                     foreach (var itemId in movieLookups[i].ItemIds)
                     {
                         newSegments[itemId] = segments;
@@ -304,6 +331,7 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
                         episode.DurationMs);
                     if (segments.Count > 0)
                     {
+                        retrievedNewSegments = true;
                         newSegments[episode.ItemId] = segments;
                     }
                 }
@@ -345,7 +373,7 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
                     totalItems);
             }
 
-            if (newSegments.Count > 0)
+            if (retrievedNewSegments)
             {
                 TriggerMediaSegmentScan();
             }

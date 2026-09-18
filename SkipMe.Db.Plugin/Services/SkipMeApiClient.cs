@@ -26,6 +26,8 @@ public class SkipMeApiClient
     // Workers Free plan. Batch by input lookup item, not by the number of
     // segment timestamps returned for those items.
     private const int MaxItemsPerRequest = 50;
+    // Keep large library synchronizations from sending batch requests back-to-back.
+    private static readonly TimeSpan MinimumBatchRequestInterval = TimeSpan.FromMilliseconds(500);
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -34,6 +36,8 @@ public class SkipMeApiClient
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<SkipMeApiClient> _logger;
+    private readonly SemaphoreSlim _requestPacingLock = new(1, 1);
+    private DateTimeOffset _lastRequestStartedUtc = DateTimeOffset.MinValue;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SkipMeApiClient"/> class.
@@ -130,6 +134,7 @@ public class SkipMeApiClient
                 continue;
             }
 
+            await WaitForRequestSlotAsync(cancellationToken).ConfigureAwait(false);
             var result = await PostBatchOnceAsync<TRequest, TResponse>(
                 client,
                 url,
@@ -142,6 +147,26 @@ public class SkipMeApiClient
         }
 
         return new ApiBatchResult<TResponse>(results, completed, usageLimitExceeded);
+    }
+
+    private async Task WaitForRequestSlotAsync(CancellationToken cancellationToken)
+    {
+        await _requestPacingLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var nextAllowedRequestUtc = _lastRequestStartedUtc + MinimumBatchRequestInterval;
+            var delay = nextAllowedRequestUtc - DateTimeOffset.UtcNow;
+            if (delay > TimeSpan.Zero)
+            {
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            }
+
+            _lastRequestStartedUtc = DateTimeOffset.UtcNow;
+        }
+        finally
+        {
+            _requestPacingLock.Release();
+        }
     }
 
     private async Task<ApiBatchResult<TResponse>> PostBatchOnceAsync<TRequest, TResponse>(

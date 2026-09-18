@@ -14,7 +14,7 @@ namespace SkipMe.Db.Plugin.Tasks;
 /// <summary>
 /// Applies the current SkipMe.db task schedule to existing Jellyfin installations.
 /// </summary>
-public sealed class SyncSegmentsTaskScheduleService : IHostedService
+public sealed class SyncSegmentsTaskScheduleService : BackgroundService
 {
     private readonly ITaskManager _taskManager;
     private readonly ILogger<SyncSegmentsTaskScheduleService> _logger;
@@ -33,27 +33,41 @@ public sealed class SyncSegmentsTaskScheduleService : IHostedService
     }
 
     /// <inheritdoc/>
-    public Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var worker = _taskManager.ScheduledTasks
-            .FirstOrDefault(task => string.Equals(task.ScheduledTask.Key, SyncSegmentsTask.TaskKey, StringComparison.Ordinal));
-
-        if (worker is null)
+        var warned = false;
+        while (!stoppingToken.IsCancellationRequested)
         {
-            _logger.LogWarning("Could not find the SkipMe.db sync scheduled task while applying its schedule.");
-            return Task.CompletedTask;
+            var worker = _taskManager.ScheduledTasks
+                .FirstOrDefault(task => task.ScheduledTask is SyncSegmentsTask);
+
+            if (worker is not null)
+            {
+                worker.Triggers = worker.ScheduledTask.GetDefaultTriggers().ToArray();
+
+                if (worker.LastExecutionResult is null && worker.State == TaskState.Idle)
+                {
+                    _logger.LogInformation("Running the initial SkipMe.db sync.");
+                    _taskManager.QueueScheduledTask(worker.ScheduledTask, new TaskOptions());
+                }
+
+                return;
+            }
+
+            if (!warned)
+            {
+                _logger.LogDebug("Waiting for Jellyfin to register the SkipMe.db sync scheduled task.");
+                warned = true;
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
         }
-
-        worker.Triggers = worker.ScheduledTask.GetDefaultTriggers().ToArray();
-
-        if (worker.LastExecutionResult is null && worker.State == TaskState.Idle)
-        {
-            _taskManager.QueueScheduledTask(worker.ScheduledTask, new TaskOptions());
-        }
-
-        return Task.CompletedTask;
     }
-
-    /// <inheritdoc/>
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

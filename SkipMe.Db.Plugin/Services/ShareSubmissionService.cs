@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,8 +28,9 @@ namespace SkipMe.Db.Plugin.Services;
 /// <summary>Builds and submits Intro Skipper timestamps to SkipMe.db.</summary>
 public sealed class ShareSubmissionService
 {
-    // Matches the worker's per-request submission cap.
-    private const int MaxWriteItemsPerRequest = 200;
+    private const int MaxRequestBytes = 100 * 1024 * 1024;
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly ILibraryManager _libraryManager;
     private readonly SegmentStore _segmentStore;
@@ -501,26 +503,64 @@ public sealed class ShareSubmissionService
         IReadOnlyList<SeasonSubmitRequest> requests)
     {
         var current = new List<SeasonSubmitRequest>();
-        var currentItemCount = 0;
+        var currentSize = 2;
+        SeasonSubmitRequest? activeSource = null;
+        SeasonSubmitRequest? activeRequest = null;
 
         foreach (var request in requests)
         {
-            var offset = 0;
-            while (offset < request.Items.Count)
-            {
-                var remainingCapacity = MaxWriteItemsPerRequest - currentItemCount;
-                var itemCount = Math.Min(remainingCapacity, request.Items.Count - offset);
-                var items = request.Items.GetRange(offset, itemCount);
-                current.Add(CopySeasonRequest(request, items));
-                currentItemCount += itemCount;
-                offset += itemCount;
+            var itemSizes = request.Items
+                .Select(item => GetJsonByteCount(item))
+                .ToList();
+            var emptyRequestSize = GetJsonByteCount(CopySeasonRequest(request, []));
+            var requestOverhead = emptyRequestSize - 2;
 
-                if (currentItemCount == MaxWriteItemsPerRequest)
+            for (var i = 0; i < request.Items.Count; i++)
+            {
+                var itemSize = itemSizes[i];
+                var continuesActiveRequest = ReferenceEquals(activeSource, request);
+                var additionalSize = continuesActiveRequest
+                    ? itemSize + 1
+                    : requestOverhead + itemSize + (current.Count > 0 ? 1 : 0);
+
+                if (currentSize + additionalSize > MaxRequestBytes)
                 {
-                    yield return current;
+                    if (current.Count > 0)
+                    {
+                        yield return current;
+                    }
+
                     current = [];
-                    currentItemCount = 0;
+                    currentSize = 2;
+                    activeSource = null;
+                    activeRequest = null;
+                    continuesActiveRequest = false;
+                    additionalSize = requestOverhead + itemSize;
                 }
+
+                if (currentSize + additionalSize > MaxRequestBytes)
+                {
+                    throw new InvalidOperationException(
+                        "A single SkipMe.db season submission item exceeds the 100 MiB request body limit.");
+                }
+
+                if (!continuesActiveRequest)
+                {
+                    activeRequest = CopySeasonRequest(request, []);
+                    current.Add(activeRequest);
+                    activeSource = request;
+                }
+
+                activeRequest!.Items.Add(request.Items[i]);
+                currentSize += additionalSize;
+            }
+
+            if (request.Items.Count == 0 && current.Count == 0)
+            {
+                // Empty season payloads are normally filtered before chunking, but
+                // do not emit an empty request if one reaches this method.
+                activeSource = null;
+                activeRequest = null;
             }
         }
 
@@ -532,10 +572,45 @@ public sealed class ShareSubmissionService
 
     private static IEnumerable<List<T>> ChunkWriteItems<T>(IReadOnlyList<T> items)
     {
-        for (var offset = 0; offset < items.Count; offset += MaxWriteItemsPerRequest)
+        var current = new List<T>();
+        var currentSize = 2;
+
+        foreach (var item in items)
         {
-            yield return items.Skip(offset).Take(MaxWriteItemsPerRequest).ToList();
+            var itemSize = GetJsonByteCount(item);
+            var additionalSize = itemSize + (current.Count > 0 ? 1 : 0);
+
+            if (currentSize + additionalSize > MaxRequestBytes)
+            {
+                if (current.Count > 0)
+                {
+                    yield return current;
+                }
+
+                current = [];
+                currentSize = 2;
+                additionalSize = itemSize;
+            }
+
+            if (currentSize + additionalSize > MaxRequestBytes)
+            {
+                throw new InvalidOperationException(
+                    "A single SkipMe.db submission item exceeds the 100 MiB request body limit.");
+            }
+
+            current.Add(item);
+            currentSize += additionalSize;
         }
+
+        if (current.Count > 0)
+        {
+            yield return current;
+        }
+    }
+
+    private static int GetJsonByteCount<T>(T value)
+    {
+        return JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions).Length;
     }
 
     private static SeasonSubmitRequest CopySeasonRequest(
@@ -738,7 +813,7 @@ public sealed class ShareSubmissionService
 
         try
         {
-            using var httpResponse = await client.PostAsJsonAsync(url, payload, cancellationToken).ConfigureAwait(false);
+            using var httpResponse = await client.PostAsJsonAsync(url, payload, JsonOptions, cancellationToken).ConfigureAwait(false);
             if (!httpResponse.IsSuccessStatusCode)
             {
                 var body = await httpResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);

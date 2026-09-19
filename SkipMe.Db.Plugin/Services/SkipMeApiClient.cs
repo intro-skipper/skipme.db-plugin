@@ -215,7 +215,9 @@ public class SkipMeApiClient
         if (!response.IsSuccessStatusCode)
         {
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            var usageLimitExceeded = response.StatusCode == System.Net.HttpStatusCode.InternalServerError;
+            var usageLimitExceeded = response.StatusCode == System.Net.HttpStatusCode.TooManyRequests
+                || (response.StatusCode == System.Net.HttpStatusCode.InternalServerError
+                    && LooksLikeUsageLimitResponse(responseBody));
 
             if (_logger.IsEnabled(LogLevel.Warning))
             {
@@ -272,6 +274,13 @@ public class SkipMeApiClient
     private static string GetEndpointName(Uri url)
     {
         return url.Segments[^1].Trim('/');
+    }
+
+    private static bool LooksLikeUsageLimitResponse(string responseBody)
+    {
+        return responseBody.Contains("usage limit", StringComparison.OrdinalIgnoreCase)
+            || responseBody.Contains("rate limit", StringComparison.OrdinalIgnoreCase)
+            || responseBody.Contains("quota", StringComparison.OrdinalIgnoreCase);
     }
 
     private static ApiBatchResult<TResponse> FailedBatch<TResponse>(int count)

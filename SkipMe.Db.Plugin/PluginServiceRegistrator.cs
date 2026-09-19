@@ -41,6 +41,5 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ShareSubmissionService>();
         serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
         serviceCollection.AddSingleton<IScheduledTask, SyncSegmentsTask>();
-        serviceCollection.AddHostedService<SyncSegmentsTaskScheduleService>();
     }
 }

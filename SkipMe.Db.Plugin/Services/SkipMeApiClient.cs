@@ -35,7 +35,7 @@ public class SkipMeApiClient
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<SkipMeApiClient> _logger;
 
-    /// <summary>Initializes the client.</summary>
+    /// <summary>Initializes a new instance of the <see cref="SkipMeApiClient"/> class.</summary>
     /// <param name="httpClientFactory">HTTP client factory.</param>
     /// <param name="logger">Logger.</param>
     public SkipMeApiClient(IHttpClientFactory httpClientFactory, ILogger<SkipMeApiClient> logger)

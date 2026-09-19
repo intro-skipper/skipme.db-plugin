@@ -37,7 +37,7 @@ public sealed class ShareSubmissionService
     private readonly ILogger<ShareSubmissionService> _logger;
     private readonly string _introSkipperDbPath;
 
-    /// <summary>Initializes the service.</summary>
+    /// <summary>Initializes a new instance of the <see cref="ShareSubmissionService"/> class.</summary>
     /// <param name="libraryManager">Jellyfin library manager.</param>
     /// <param name="segmentStore">Local segment store.</param>
     /// <param name="httpClientFactory">HTTP client factory.</param>

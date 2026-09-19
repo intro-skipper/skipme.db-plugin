@@ -117,9 +117,13 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
             if (lastAttemptUtc is { } lastAttempt
                 && nowUtc - lastAttempt < MinimumExecutionInterval)
             {
-                _logger.LogInformation(
-                    "SkipMe.db sync was requested too soon after the previous attempt; next run is allowed at {NextAllowedUtc}.",
-                    lastAttempt + MinimumExecutionInterval);
+                if (_logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation(
+                        "SkipMe.db sync was requested too soon after the previous attempt; next run is allowed at {NextAllowedUtc}.",
+                        lastAttempt + MinimumExecutionInterval);
+                }
+
                 return;
             }
 

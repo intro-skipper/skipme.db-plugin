@@ -43,9 +43,10 @@ to an individual media lookup. Later synchronizations reuse timestamps already
 stored locally and query only items that have not been retrieved yet; items for
 which the service returned no timestamps remain eligible for a later retry.
 
-Synchronization is provided by the unlisted `Sync SkipMe.db Segment Database`
+Synchronization is provided by the visible `Sync SkipMe.db Segment Database`
 task in the `Intro Skipper` category. It runs once automatically after the
-plugin is first loaded, then daily at 01:00 local time. The task can report
+plugin is first loaded, then daily at 01:00 local time. Manual or scheduled
+starts are limited to one attempt every four hours. The task can report
 progress, avoids overlapping runs, and keeps the existing cache if a run is
 cancelled, incomplete, or reaches the remote service's daily usage limit.
 

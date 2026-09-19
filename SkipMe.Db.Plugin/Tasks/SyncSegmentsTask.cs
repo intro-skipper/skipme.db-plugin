@@ -31,6 +31,7 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
     private const double MovieResponseProcessingProgressEnd = 55.0;
     private const double ShowLookupProgressEnd = 90.0;
     private const double ResponseProcessingProgressEnd = 95.0;
+    private static readonly TimeSpan MinimumExecutionInterval = TimeSpan.FromHours(4);
 
     /// <summary>Stable task key used to identify the scheduled task.</summary>
     internal const string TaskKey = "SkipMeDaily";
@@ -79,7 +80,7 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
     public string Category => "Intro Skipper";
 
     /// <inheritdoc/>
-    public bool IsHidden => true;
+    public bool IsHidden => false;
 
     /// <inheritdoc/>
     public bool IsEnabled => true;
@@ -111,6 +112,18 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
 
         try
         {
+            var nowUtc = DateTimeOffset.UtcNow;
+            var lastAttemptUtc = _segmentStore.GetLastSyncAttemptUtc();
+            if (lastAttemptUtc is { } lastAttempt
+                && nowUtc - lastAttempt < MinimumExecutionInterval)
+            {
+                _logger.LogInformation(
+                    "SkipMe.db sync was requested too soon after the previous attempt; next run is allowed at {NextAllowedUtc}.",
+                    lastAttempt + MinimumExecutionInterval);
+                return;
+            }
+
+            await _segmentStore.SetLastSyncAttemptUtcAsync(nowUtc).ConfigureAwait(false);
             progress.Report(0.0);
 
             var movies = _libraryManager

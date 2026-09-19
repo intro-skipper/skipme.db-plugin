@@ -24,15 +24,10 @@ using SkipMe.Db.Plugin.Models;
 
 namespace SkipMe.Db.Plugin.Services;
 
-/// <summary>
-/// Builds and submits share payloads from Intro Skipper timestamps.
-/// </summary>
+/// <summary>Builds and submits Intro Skipper timestamps to SkipMe.db.</summary>
 public sealed class ShareSubmissionService
 {
-    // Keep submission writes separate from the 550-item read limit. The worker
-    // explicitly rejects more than 200 logical submission items per request
-    // (after deduplication), and season batches also perform an exact-match
-    // lookup before writing. Keeping this at 200 stays below both constraints.
+    // Matches the worker's per-request submission cap.
     private const int MaxWriteItemsPerRequest = 200;
 
     private readonly ILibraryManager _libraryManager;
@@ -42,14 +37,12 @@ public sealed class ShareSubmissionService
     private readonly ILogger<ShareSubmissionService> _logger;
     private readonly string _introSkipperDbPath;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="ShareSubmissionService"/> class.
-    /// </summary>
+    /// <summary>Initializes the service.</summary>
     /// <param name="libraryManager">Jellyfin library manager.</param>
-    /// <param name="segmentStore">Local SkipMe segment store.</param>
+    /// <param name="segmentStore">Local segment store.</param>
     /// <param name="httpClientFactory">HTTP client factory.</param>
-    /// <param name="tvMazeClient">TVMaze API client used to fill in missing series IDs.</param>
-    /// <param name="applicationPaths">Application path provider.</param>
+    /// <param name="tvMazeClient">TVMaze client.</param>
+    /// <param name="applicationPaths">Application paths.</param>
     /// <param name="logger">Logger.</param>
     public ShareSubmissionService(
         ILibraryManager libraryManager,
@@ -67,12 +60,10 @@ public sealed class ShareSubmissionService
         _introSkipperDbPath = Path.Join(applicationPaths.DataPath, "introskipper", "introskipper.db");
     }
 
-    /// <summary>
-    /// Shares enabled filtered items.
-    /// </summary>
-    /// <param name="request">Share request payload.</param>
+    /// <summary>Shares selected movies, episodes, and seasons.</summary>
+    /// <param name="request">Share request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Share run summary.</returns>
+    /// <returns>Summary of the share operation.</returns>
     public async Task<ShareSubmitResponse> ShareAsync(ShareSubmitRequest request, CancellationToken cancellationToken)
     {
         var filteredSeriesIds = ParseGuidSet(request.FilteredSeriesIds);
@@ -118,8 +109,7 @@ public sealed class ShareSubmissionService
             };
         }
 
-        // Deduplicate each timestamp independently.  The request can still be sent as a
-        // batch, but one previously shared timestamp must not suppress any other item.
+        // Deduplicate timestamps independently so one shared item does not suppress another.
         var unsharedTimestamps = _segmentStore.GetUnsharedTimestamps(allTimestamps);
         var unsharedSet = new HashSet<SharedUploadTimestamp>(unsharedTimestamps);
         var skippedAlreadyShared = allTimestamps.Count - unsharedTimestamps.Count;
@@ -143,7 +133,7 @@ public sealed class ShareSubmissionService
             };
         }
 
-        var ok = false; // Set true by any batch that succeeds; preserves partial success.
+        var ok = false;
         var sharedSegments = 0;
         var sharedShowSeasons = 0;
         var sharedMovies = 0;
@@ -161,9 +151,7 @@ public sealed class ShareSubmissionService
                     sharedSegments += seasonResult.Submitted;
                     sharedShowSeasons += seasonBatch.Count;
                     var seasonTimestamps = seasonBatch.SelectMany(s => s.Items).Select(i => i.Timestamp).ToList();
-                    // The API only returns an aggregate count.  If it accepted a partial batch,
-                    // there is no safe way to identify which individual timestamps were accepted.
-                    // Leave the whole batch unrecorded so a retry cannot hide newly added segments.
+                    // Record history only when the aggregate count confirms the whole batch.
                     if (seasonResult.Submitted == seasonTimestamps.Count)
                     {
                         await _segmentStore.RecordSharedTimestampsAsync(seasonTimestamps).ConfigureAwait(false);
@@ -187,8 +175,7 @@ public sealed class ShareSubmissionService
                     sharedSegments += movieResult.Submitted;
                     sharedMovies += movieBatch.Count;
                     var movieTimestamps = movieBatch.Select(m => m.Timestamp).ToList();
-                    // See the season batch above: only persist history when every individual
-                    // timestamp in this request was confirmed by the aggregate response.
+                    // Record history only when the aggregate count confirms the whole batch.
                     if (movieResult.Submitted == movieTimestamps.Count)
                     {
                         await _segmentStore.RecordSharedTimestampsAsync(movieTimestamps).ConfigureAwait(false);
@@ -214,11 +201,8 @@ public sealed class ShareSubmissionService
         };
     }
 
-    /// <summary>
-    /// Gets valid, canonical Intro Skipper timestamps that have not already been shared,
-    /// grouped by Jellyfin item ID.
-    /// </summary>
-    /// <returns>Shareable timestamp counts keyed by Jellyfin item ID.</returns>
+    /// <summary>Gets unshared timestamps grouped by Jellyfin item.</summary>
+    /// <returns>Counts of shareable timestamps.</returns>
     public IReadOnlyDictionary<Guid, int> GetShareableSegmentCountsByItemId()
     {
         if (!File.Exists(_introSkipperDbPath))
@@ -334,7 +318,7 @@ public sealed class ShareSubmissionService
             return ([], 0);
         }
 
-        // Scope the query to only the filtered series so we don't scan the entire library.
+        // Restrict the query to the selected series.
         var episodes = _libraryManager
             .GetItemList(new InternalItemsQuery
             {
@@ -390,9 +374,7 @@ public sealed class ShareSubmissionService
             var seasonIds = BuildIdentifiers(season);
             var seriesIds = BuildIdentifiers(episode.Series);
 
-            // When the series has no known IDs, try TVMaze to fill in TVDB / IMDb.
-            // The client caches results by Jellyfin series ID, so each series is looked up at most once
-            // regardless of how many seasons or episodes it contains.
+            // Fill missing series IDs through the cached TVMaze client.
             if (!HasMovieMatchingStrategy(seriesIds) && episode.Series is { } series)
             {
                 var tvMazeIds = await _tvMazeClient.GetShowIdsAsync(
@@ -589,15 +571,12 @@ public sealed class ShareSubmissionService
         using var connection = new SqliteConnection(connectionString);
         connection.Open();
 
-        // The IsUserProvided column was added in a later version of Intro Skipper.
-        // Check once whether it exists so older databases continue to work.
+        // Support databases without IsUserProvided.
         using var checkCol = connection.CreateCommand();
         checkCol.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DbSegment') WHERE name = 'IsUserProvided'";
         var hasIsUserProvided = (long)(checkCol.ExecuteScalar() ?? 0L) > 0;
 
-        // Internal tracking dict: segment type -> (range, isUserProvided).
-        // User-provided segments (saved via the segment editor) take priority over
-        // auto-detected ones of the same type.
+        // Track each range and its source.
         var tracking = new Dictionary<Guid, Dictionary<string, (SegmentRange Range, bool IsUserProvided)>>();
 
         var selectFields = hasIsUserProvided ? "ItemId, Type, Start, End, IsUserProvided" : "ItemId, Type, Start, End";
@@ -611,9 +590,7 @@ public sealed class ShareSubmissionService
 
             for (var i = 0; i < chunk.Count; i++)
             {
-                // EF Core's SQLite Guid representation is normally the dashed (D)
-                // format, but older databases and manually migrated databases may
-                // contain the compact (N) format. Match both representations.
+                // Support dashed and compact GUID formats.
                 var dashedParameterName = $"@itemD{i}";
                 var compactParameterName = $"@itemN{i}";
                 placeholders.Add(dashedParameterName);
@@ -665,12 +642,12 @@ public sealed class ShareSubmissionService
                 }
                 else if (isUserProvided && !existing.IsUserProvided)
                 {
-                    // Segment-editor entries take priority over auto-detected ones.
+                    // Prefer entries from the segment editor.
                     perType[segment] = (range, isUserProvided);
                 }
                 else if (isUserProvided == existing.IsUserProvided && startMs < existing.Range.StartMs)
                 {
-                    // Among same-priority segments, keep the earliest (mirrors Intro Skipper's own selection).
+                    // Break ties with the earliest segment.
                     perType[segment] = (range, isUserProvided);
                 }
             }
@@ -721,8 +698,7 @@ public sealed class ShareSubmissionService
 
     private static int? TryGetIntProviderId(BaseItem? item, string provider)
     {
-        // Jellyfin may store negative numeric placeholders to suppress provider matching.
-        // Do not forward those values to the SkipMe.db write payloads.
+        // Ignore negative provider IDs used as placeholders.
         if (item?.ProviderIds.TryGetValue(provider, out var raw) == true
             && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             && parsed > 0)

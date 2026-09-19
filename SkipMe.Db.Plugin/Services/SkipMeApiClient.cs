@@ -15,51 +15,39 @@ using SkipMe.Db.Plugin.Models;
 
 namespace SkipMe.Db.Plugin.Services;
 
-/// <summary>
-/// HTTP client for the configured SkipMe.db API.
-/// Fetches crowd-sourced segment timestamps for TV series and movies.
-/// </summary>
+/// <summary>Retrieves segment timestamps from SkipMe.db.</summary>
 public class SkipMeApiClient
 {
     private const int MaxRequestBytes = 100 * 1024 * 1024;
-    // Cloudflare D1 allows 50 read subrequests per Worker invocation on the
-    // Workers Free plan. Batch by input lookup item, not by the number of
-    // segment timestamps returned for those items.
-    // The worker groups movie lookups into queries with at most 100 bound
-    // parameters. A plugin movie lookup can contribute at most 9 parameters,
-    // so 11 lookups fit in each query. The D1 read limit is 50 queries per
-    // invocation, making 550 items the largest safe shared batch size.
+    // Keeps worst-case movie lookups within the worker's query limit.
     private const int MaxItemsPerRequest = 550;
-    // Keep large library synchronizations from sending batch requests back-to-back.
+    // Throttle batch starts to 500 ms apart.
     private static readonly TimeSpan MinimumBatchRequestInterval = TimeSpan.FromMilliseconds(500);
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
+
     private static readonly SemaphoreSlim _requestPacingLock = new(1, 1);
     private static DateTimeOffset _lastRequestStartedUtc = DateTimeOffset.MinValue;
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<SkipMeApiClient> _logger;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="SkipMeApiClient"/> class.
-    /// </summary>
-    /// <param name="httpClientFactory">The HTTP client factory.</param>
-    /// <param name="logger">The logger.</param>
+    /// <summary>Initializes the client.</summary>
+    /// <param name="httpClientFactory">HTTP client factory.</param>
+    /// <param name="logger">Logger.</param>
     public SkipMeApiClient(IHttpClientFactory httpClientFactory, ILogger<SkipMeApiClient> logger)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
-    /// <summary>
-    /// Fetches segment timestamps for many movie/episode lookups via the movies endpoint.
-    /// </summary>
-    /// <param name="requests">The lookup requests.</param>
+    /// <summary>Fetches movie and episode segments in request order.</summary>
+    /// <param name="requests">Lookup requests.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A response list that aligns with the request order.</returns>
+    /// <returns>Responses aligned with <paramref name="requests"/>.</returns>
     public async Task<IReadOnlyList<MediaResponse?>> GetByMoviesBatchAsync(
         IReadOnlyList<MovieLookupRequest> requests,
         CancellationToken cancellationToken)
@@ -68,13 +56,11 @@ public class SkipMeApiClient
         return result.Responses;
     }
 
-    /// <summary>
-    /// Fetches segment timestamps for many movie/episode lookups via the movies endpoint.
-    /// </summary>
-    /// <param name="requests">The lookup requests.</param>
-    /// <param name="onBatchCompleted">Optional callback invoked after each request batch finishes.</param>
+    /// <summary>Fetches movie and episode segments with completion status.</summary>
+    /// <param name="requests">Lookup requests.</param>
+    /// <param name="onBatchCompleted">Optional callback after each completed batch.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A response list plus whether all batches completed reliably.</returns>
+    /// <returns>Responses and whether every batch completed.</returns>
     internal Task<ApiBatchResult<MediaResponse>> GetByMoviesBatchWithStatusAsync(
         IReadOnlyList<MovieLookupRequest> requests,
         Action<int>? onBatchCompleted,
@@ -83,12 +69,10 @@ public class SkipMeApiClient
         return PostBatchAsync<MovieLookupRequest, MediaResponse>("/movies", requests, onBatchCompleted, cancellationToken);
     }
 
-    /// <summary>
-    /// Fetches segment timestamps for many show lookups via the shows endpoint.
-    /// </summary>
-    /// <param name="requests">The lookup requests.</param>
+    /// <summary>Fetches show segments in request order.</summary>
+    /// <param name="requests">Lookup requests.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A response list that aligns with the request order.</returns>
+    /// <returns>Responses aligned with <paramref name="requests"/>.</returns>
     public async Task<IReadOnlyList<SeriesResponse?>> GetByShowsBatchAsync(
         IReadOnlyList<ShowLookupRequest> requests,
         CancellationToken cancellationToken)
@@ -97,13 +81,11 @@ public class SkipMeApiClient
         return result.Responses;
     }
 
-    /// <summary>
-    /// Fetches segment timestamps for many show lookups via the shows endpoint.
-    /// </summary>
-    /// <param name="requests">The lookup requests.</param>
-    /// <param name="onBatchCompleted">Optional callback invoked after each request batch finishes.</param>
+    /// <summary>Fetches show segments with completion status.</summary>
+    /// <param name="requests">Lookup requests.</param>
+    /// <param name="onBatchCompleted">Optional callback after each completed batch.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A response list plus whether all batches completed reliably.</returns>
+    /// <returns>Responses and whether every batch completed.</returns>
     internal Task<ApiBatchResult<SeriesResponse>> GetByShowsBatchWithStatusAsync(
         IReadOnlyList<ShowLookupRequest> requests,
         Action<int>? onBatchCompleted,
@@ -265,7 +247,7 @@ public class SkipMeApiClient
         var payload = await response.Content.ReadFromJsonAsync<List<TResponse?>>(cancellationToken).ConfigureAwait(false) ?? [];
         if (payload.Count == itemBatch.Count)
         {
-            // Null entries represent valid no-result lookups and retain their position in the batch.
+            // Preserve positions for no-result lookups.
             return new ApiBatchResult<TResponse>(payload, true);
         }
 
@@ -300,7 +282,7 @@ public class SkipMeApiClient
     private static IEnumerable<List<TRequest>> ChunkItems<TRequest>(IReadOnlyList<TRequest> requests)
     {
         var current = new List<TRequest>();
-        var currentSize = 2; // []
+        var currentSize = 2;
 
         foreach (var request in requests)
         {
@@ -317,7 +299,7 @@ public class SkipMeApiClient
                 currentSize = 2;
             }
 
-            var additional = itemSize + (current.Count > 0 ? 1 : 0); // item + comma
+            var additional = itemSize + (current.Count > 0 ? 1 : 0);
 
             if (current.Count > 0 && currentSize + additional > MaxRequestBytes)
             {

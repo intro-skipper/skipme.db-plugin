@@ -155,7 +155,6 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
 
             var totalItems = movies.Count + allEpisodes.Count;
             var processed = 0;
-            var retrievedNewSegments = false;
             var movieLookupMap = new Dictionary<string, MovieLookupWorkItem>(StringComparer.Ordinal);
             var showLookupMap = new Dictionary<string, ShowLookupWorkItem>(StringComparer.Ordinal);
 
@@ -282,7 +281,6 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
                 var segments = BuildStoredSegmentsFromMedia(response);
                 if (segments.Count > 0)
                 {
-                    retrievedNewSegments = true;
                     foreach (var itemId in movieLookups[i].ItemIds)
                     {
                         newSegments[itemId] = segments;
@@ -348,7 +346,6 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
                         episode.DurationMs);
                     if (segments.Count > 0)
                     {
-                        retrievedNewSegments = true;
                         newSegments[episode.ItemId] = segments;
                     }
                 }
@@ -390,14 +387,7 @@ public class SyncSegmentsTask : IScheduledTask, IConfigurableScheduledTask
                     totalItems);
             }
 
-            if (retrievedNewSegments)
-            {
-                TriggerMediaSegmentScan();
-            }
-            else if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                _logger.LogDebug("SkipMe.db sync returned no segment data; media segment scan will not be triggered.");
-            }
+            TriggerMediaSegmentScan();
         }
         finally
         {

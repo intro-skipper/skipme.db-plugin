@@ -29,7 +29,10 @@ namespace SkipMe.Db.Plugin.Services;
 /// </summary>
 public sealed class ShareSubmissionService
 {
-    // The sharing service accepts no more than 200 write items in one request.
+    // Keep submission writes separate from the 550-item read limit. The worker
+    // explicitly rejects more than 200 logical submission items per request
+    // (after deduplication), and season batches also perform an exact-match
+    // lookup before writing. Keeping this at 200 stays below both constraints.
     private const int MaxWriteItemsPerRequest = 200;
 
     private readonly ILibraryManager _libraryManager;

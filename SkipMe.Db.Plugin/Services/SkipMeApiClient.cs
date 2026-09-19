@@ -25,7 +25,11 @@ public class SkipMeApiClient
     // Cloudflare D1 allows 50 read subrequests per Worker invocation on the
     // Workers Free plan. Batch by input lookup item, not by the number of
     // segment timestamps returned for those items.
-    private const int MaxItemsPerRequest = 50;
+    // The worker groups movie lookups into queries with at most 100 bound
+    // parameters. A plugin movie lookup can contribute at most 9 parameters,
+    // so 11 lookups fit in each query. The D1 read limit is 50 queries per
+    // invocation, making 550 items the largest safe shared batch size.
+    private const int MaxItemsPerRequest = 550;
     // Keep large library synchronizations from sending batch requests back-to-back.
     private static readonly TimeSpan MinimumBatchRequestInterval = TimeSpan.FromMilliseconds(500);
 
@@ -33,11 +37,11 @@ public class SkipMeApiClient
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
+    private static readonly SemaphoreSlim _requestPacingLock = new(1, 1);
+    private static DateTimeOffset _lastRequestStartedUtc = DateTimeOffset.MinValue;
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<SkipMeApiClient> _logger;
-    private readonly SemaphoreSlim _requestPacingLock = new(1, 1);
-    private DateTimeOffset _lastRequestStartedUtc = DateTimeOffset.MinValue;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SkipMeApiClient"/> class.

@@ -45,10 +45,11 @@ which the service returned no timestamps remain eligible for a later retry.
 
 Synchronization is provided by the visible `Sync SkipMe.db Segment Database`
 task in the `Intro Skipper` category. It runs daily at 01:00 local time.
-Manual or scheduled starts are limited to one attempt every four hours. The
-task can report progress, avoids overlapping runs, and keeps the existing
-cache if a run is cancelled, incomplete, or reaches the remote service's daily
-usage limit.
+Manual or scheduled starts are limited to one attempt every eight hours. The
+SkipMe.db server data is also refreshed every eight hours, so newly submitted
+timestamps may not appear immediately after a successful sync. The task can
+report progress, avoids overlapping runs, and keeps the existing cache if a
+run is cancelled, incomplete, or reaches the remote service's usage limit.
 
 Older cache locations are migrated when possible. The plugin uses the local
 cache when serving segments, so a temporary service failure does not remove

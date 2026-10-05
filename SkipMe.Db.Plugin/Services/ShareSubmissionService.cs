@@ -92,6 +92,10 @@ public sealed class ShareSubmissionService
             .Distinct()
             .ToList();
 
+        // Intro Skipper can derive a synthetic preview from the end of credits when
+        // its anime/post-credits option is enabled.  Those previews are local playback
+        // hints, not independently recorded segment data, so keep them out of both the
+        // share payload and the counts shown by the Share tab.
         var introSegmentsByItemId = LoadIntroSkipperSegments(allCandidateItemIds);
 
         var seasonRequests = BuildSeasonPayload(showCandidates, introSegmentsByItemId, ref skippedNoSegments);
@@ -227,6 +231,8 @@ public sealed class ShareSubmissionService
             return new Dictionary<Guid, int>();
         }
 
+        // Use the same Intro Skipper provenance filtering as ShareAsync so the Share
+        // tab never advertises synthetic credits-derived previews as uploadable.
         var introSegments = LoadIntroSkipperSegments([.. items.Keys]);
         var candidates = new List<SharedUploadTimestamp>();
 
@@ -646,15 +652,28 @@ public sealed class ShareSubmissionService
         using var connection = new SqliteConnection(connectionString);
         connection.Open();
 
-        // Support databases without IsUserProvided.
+        // Support databases from before provenance tracking was added.
         using var checkCol = connection.CreateCommand();
         checkCol.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DbSegment') WHERE name = 'IsUserProvided'";
         var hasIsUserProvided = (long)(checkCol.ExecuteScalar() ?? 0L) > 0;
 
+        using var sourceCheck = connection.CreateCommand();
+        sourceCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DbSegment') WHERE name = 'Source'";
+        var hasSource = (long)(sourceCheck.ExecuteScalar() ?? 0L) > 0;
+
         // Track each range and its source.
         var tracking = new Dictionary<Guid, Dictionary<string, (SegmentRange Range, bool IsUserProvided)>>();
 
-        var selectFields = hasIsUserProvided ? "ItemId, Type, Start, End, IsUserProvided" : "ItemId, Type, Start, End";
+        var selectFields = "ItemId, Type, Start, End";
+        if (hasIsUserProvided)
+        {
+            selectFields += ", IsUserProvided";
+        }
+
+        if (hasSource)
+        {
+            selectFields += ", Source";
+        }
 
         const int chunkSize = 400;
         for (var offset = 0; offset < itemIds.Count; offset += chunkSize)
@@ -701,7 +720,25 @@ public sealed class ShareSubmissionService
                     continue;
                 }
 
-                var isUserProvided = hasIsUserProvided && !reader.IsDBNull(4) && reader.GetBoolean(4);
+                var fieldIndex = 4;
+                var isUserProvided = hasIsUserProvided && !reader.IsDBNull(fieldIndex) && reader.GetBoolean(fieldIndex);
+                if (hasIsUserProvided)
+                {
+                    fieldIndex++;
+                }
+
+                if (hasSource)
+                {
+                    // Intro Skipper's CreditsDerived source is the synthetic preview
+                    // created from the end of credits by the "assume after credits"
+                    // setting.  Do not publish it as a real preview.  Other preview
+                    // sources, including manual segment-editor entries, remain valid.
+                    var source = reader.IsDBNull(fieldIndex) ? (int?)null : reader.GetInt32(fieldIndex);
+                    if (segment.Equals("preview", StringComparison.OrdinalIgnoreCase) && source == 4)
+                    {
+                        continue;
+                    }
+                }
 
                 if (!tracking.TryGetValue(itemId, out var perType))
                 {

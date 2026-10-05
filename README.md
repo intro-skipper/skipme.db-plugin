@@ -106,6 +106,9 @@ Sharing behavior includes:
 - Intro Skipper segment-editor entries take priority over auto-detected entries
   of the same type; when priorities are equal, the earliest valid entry is
   selected.
+- Credits-derived previews created by Intro Skipper's after-credits preview
+  option are excluded from Share-tab counts and submissions; recorded previews
+  from other sources remain eligible.
 - One canonical timestamp per segment type is considered for each item.
 - Local share history prevents re-submitting matching timestamps within one
   second for the item, segment type, start, end, and duration.

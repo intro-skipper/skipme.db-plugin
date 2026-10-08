@@ -51,6 +51,9 @@ export interface SegmentCountResponse {
 }
 
 export interface ShareSubmitResponse {
+  Completed: boolean;
+  JobId?: string | null;
+  Status?: string | null;
   Ok: boolean;
   SharedSegments: number;
   SharedShowSeasons: number;

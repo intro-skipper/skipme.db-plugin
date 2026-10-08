@@ -10,7 +10,9 @@ import type {
 } from "./types.ts";
 
 const PLUGIN_ID = "b2a63e62-0ac5-4575-9ad2-2c7534ccb83d";
-const SHARE_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+const SHARE_START_TIMEOUT_MS = 30 * 1000;
+const SHARE_POLL_INTERVAL_MS = 1000;
+const SHARE_MAX_WAIT_MS = 60 * 60 * 1000;
 
 // ── Auth helper ────────────────────────────────────────────────────────────────
 // Uses only the two stable window.ApiClient methods: serverAddress() and
@@ -146,7 +148,7 @@ export async function shareEnabledItems(payload: ShareSubmitRequest): Promise<Sh
   const base = window.ApiClient.serverAddress().replace(/\/+$/, "");
   const token = window.ApiClient.accessToken();
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), SHARE_REQUEST_TIMEOUT_MS);
+  const timeoutId = window.setTimeout(() => controller.abort(), SHARE_START_TIMEOUT_MS);
 
   try {
     const response = await fetch(`${base}/SkipMeDb/Share`, {
@@ -163,7 +165,29 @@ export async function shareEnabledItems(payload: ShareSubmitRequest): Promise<Sh
       throw new Error(`Failed to share segments (HTTP ${response.status})`);
     }
 
-    return (await response.json()) as ShareSubmitResponse;
+    let result = (await response.json()) as ShareSubmitResponse;
+    if (result.Completed || !result.JobId) {
+      return result;
+    }
+
+    const jobId = result.JobId;
+    const deadline = Date.now() + SHARE_MAX_WAIT_MS;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, SHARE_POLL_INTERVAL_MS));
+      const statusResponse = await fetch(`${base}/SkipMeDb/Share/${encodeURIComponent(jobId)}`, {
+        headers: { Authorization: `MediaBrowser Token=${token}` },
+      });
+      if (!statusResponse.ok) {
+        throw new Error(`Failed to read share status (HTTP ${statusResponse.status})`);
+      }
+
+      result = (await statusResponse.json()) as ShareSubmitResponse;
+      if (result.Completed) {
+        return result;
+      }
+    }
+
+    throw new Error("Share is still running; reopen the settings page to check again.");
   } finally {
     window.clearTimeout(timeoutId);
   }

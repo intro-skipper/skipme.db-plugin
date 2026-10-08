@@ -39,6 +39,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<TvMazeClient>();
         serviceCollection.AddSingleton<SegmentStore>();
         serviceCollection.AddSingleton<ShareSubmissionService>();
+        serviceCollection.AddSingleton<ShareJobService>();
         serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
         serviceCollection.AddSingleton<IScheduledTask, SyncSegmentsTask>();
     }

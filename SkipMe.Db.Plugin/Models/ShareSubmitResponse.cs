@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Intro Skipper contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System;
+
 namespace SkipMe.Db.Plugin.Models;
 
 /// <summary>
@@ -8,6 +10,15 @@ namespace SkipMe.Db.Plugin.Models;
 /// </summary>
 public sealed class ShareSubmitResponse
 {
+    /// <summary>Gets a value indicating whether the share job has finished.</summary>
+    public bool Completed { get; init; } = true;
+
+    /// <summary>Gets the asynchronous share job identifier, when one was created.</summary>
+    public Guid? JobId { get; init; }
+
+    /// <summary>Gets the asynchronous job status.</summary>
+    public string? Status { get; init; }
+
     /// <summary>Gets a value indicating whether at least one submission request succeeded.</summary>
     public bool Ok { get; init; }
 

@@ -126,7 +126,8 @@ The settings page uses these elevated Jellyfin API endpoints:
 
 - `GET /SkipMeDb/Segments/Counts` — counts from the local SkipMe.db cache.
 - `GET /SkipMeDb/Share/Counts` — unshared eligible Intro Skipper counts.
-- `POST /SkipMeDb/Share` — submits the selected Share-tab items.
+- `POST /SkipMeDb/Share` — queues the selected Share-tab items and returns a job ID.
+- `GET /SkipMeDb/Share/{jobId}` — gets the status and result of a share job.
 
 ## Building from source
 

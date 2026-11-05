@@ -38,7 +38,6 @@ public sealed class ShareSubmissionService
     private readonly TvMazeClient _tvMazeClient;
     private readonly ILogger<ShareSubmissionService> _logger;
     private readonly string _introSkipperDbPath;
-    private readonly string _legacyIntroSkipperDbPath;
 
     /// <summary>Initializes a new instance of the <see cref="ShareSubmissionService"/> class.</summary>
     /// <param name="libraryManager">Jellyfin library manager.</param>
@@ -60,9 +59,7 @@ public sealed class ShareSubmissionService
         _httpClientFactory = httpClientFactory;
         _tvMazeClient = tvMazeClient;
         _logger = logger;
-        // Intro Skipper keeps the legacy database after migrating, so the v2 file wins when both exist.
         _introSkipperDbPath = Path.Join(applicationPaths.DataPath, "introskipper", "introskipper-v2.db");
-        _legacyIntroSkipperDbPath = Path.Join(applicationPaths.DataPath, "introskipper", "introskipper.db");
     }
 
     /// <summary>Shares selected movies, episodes, and seasons.</summary>
@@ -649,27 +646,9 @@ public sealed class ShareSubmissionService
         return connection;
     }
 
-    private static bool HasV2SegmentsSchema(string dbPath)
-    {
-        using var connection = OpenReadOnly(dbPath);
-        using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT COUNT(*) FROM pragma_table_info('Segments')
-            WHERE name IN ('ItemId', 'Type', 'StartTicks', 'EndTicks', 'Source', 'State')
-            """;
-        return (long)(command.ExecuteScalar() ?? 0L) == 6;
-    }
-
     private string? ResolveIntroSkipperDbPath()
     {
-        // Fall back to the legacy database while the v2 file is missing, still being
-        // migrated, or from a schema revision this plugin does not understand.
-        if (File.Exists(_introSkipperDbPath) && HasV2SegmentsSchema(_introSkipperDbPath))
-        {
-            return _introSkipperDbPath;
-        }
-
-        return File.Exists(_legacyIntroSkipperDbPath) ? _legacyIntroSkipperDbPath : null;
+        return File.Exists(_introSkipperDbPath) ? _introSkipperDbPath : null;
     }
 
     [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities", Justification = "IN-clause placeholders are generated internally and each value is parameterized.")]
@@ -682,44 +661,6 @@ public sealed class ShareSubmissionService
         }
 
         using var connection = OpenReadOnly(dbPath);
-
-        bool hasIsUserProvided;
-        bool hasSource;
-        string selectFields;
-        string fromClause;
-        if (dbPath == _introSkipperDbPath)
-        {
-            // Intro Skipper v2 stores ticks, records segment-editor entries as
-            // SegmentSource.User (5), and keeps suppressed segments (State 1).
-            hasIsUserProvided = true;
-            hasSource = true;
-            selectFields = "ItemId, Type, StartTicks / 10000000.0, EndTicks / 10000000.0, Source = 5, Source";
-            fromClause = "Segments WHERE State = 0 AND";
-        }
-        else
-        {
-            // Support databases from before provenance tracking was added.
-            using var checkCol = connection.CreateCommand();
-            checkCol.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DbSegment') WHERE name = 'IsUserProvided'";
-            hasIsUserProvided = (long)(checkCol.ExecuteScalar() ?? 0L) > 0;
-
-            using var sourceCheck = connection.CreateCommand();
-            sourceCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DbSegment') WHERE name = 'Source'";
-            hasSource = (long)(sourceCheck.ExecuteScalar() ?? 0L) > 0;
-
-            selectFields = "ItemId, Type, Start, End";
-            if (hasIsUserProvided)
-            {
-                selectFields += ", IsUserProvided";
-            }
-
-            if (hasSource)
-            {
-                selectFields += ", Source";
-            }
-
-            fromClause = "DbSegment WHERE";
-        }
 
         // Track each range and its source.
         var tracking = new Dictionary<Guid, Dictionary<string, (SegmentRange Range, bool IsUserProvided)>>();
@@ -743,8 +684,8 @@ public sealed class ShareSubmissionService
             }
 
             command.CommandText = $"""
-                SELECT {selectFields}
-                FROM {fromClause} Type IN (0, 1, 2, 3)
+                SELECT ItemId, Type, StartTicks / 10000000.0, EndTicks / 10000000.0, Source = 5, Source
+                FROM Segments WHERE State = 0 AND Type IN (0, 1, 2, 3)
                   AND ItemId COLLATE NOCASE IN ({string.Join(",", placeholders)})
                 """;
 
@@ -768,24 +709,16 @@ public sealed class ShareSubmissionService
                     continue;
                 }
 
-                var fieldIndex = 4;
-                var isUserProvided = hasIsUserProvided && !reader.IsDBNull(fieldIndex) && reader.GetBoolean(fieldIndex);
-                if (hasIsUserProvided)
-                {
-                    fieldIndex++;
-                }
+                var isUserProvided = !reader.IsDBNull(4) && reader.GetBoolean(4);
 
-                if (hasSource)
+                // Intro Skipper's CreditsDerived source is the synthetic preview
+                // created from the end of credits by the "assume after credits"
+                // setting. Do not publish it as a real preview. Other preview
+                // sources, including manual segment-editor entries, remain valid.
+                var source = reader.IsDBNull(5) ? (int?)null : reader.GetInt32(5);
+                if (segment.Equals("preview", StringComparison.OrdinalIgnoreCase) && source == 4)
                 {
-                    // Intro Skipper's CreditsDerived source is the synthetic preview
-                    // created from the end of credits by the "assume after credits"
-                    // setting.  Do not publish it as a real preview.  Other preview
-                    // sources, including manual segment-editor entries, remain valid.
-                    var source = reader.IsDBNull(fieldIndex) ? (int?)null : reader.GetInt32(fieldIndex);
-                    if (segment.Equals("preview", StringComparison.OrdinalIgnoreCase) && source == 4)
-                    {
-                        continue;
-                    }
+                    continue;
                 }
 
                 if (!tracking.TryGetValue(itemId, out var perType))

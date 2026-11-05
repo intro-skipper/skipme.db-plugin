@@ -59,7 +59,7 @@ public sealed class ShareSubmissionService
         _httpClientFactory = httpClientFactory;
         _tvMazeClient = tvMazeClient;
         _logger = logger;
-        _introSkipperDbPath = Path.Join(applicationPaths.DataPath, "introskipper", "introskipper.db");
+        _introSkipperDbPath = Path.Join(applicationPaths.DataPath, "introskipper", "introskipper-v2.db");
     }
 
     /// <summary>Shares selected movies, episodes, and seasons.</summary>
@@ -211,7 +211,7 @@ public sealed class ShareSubmissionService
     /// <returns>Counts of shareable timestamps.</returns>
     public IReadOnlyDictionary<Guid, int> GetShareableSegmentCountsByItemId()
     {
-        if (!File.Exists(_introSkipperDbPath))
+        if (ResolveIntroSkipperDbPath() is null)
         {
             return new Dictionary<Guid, int>();
         }
@@ -635,45 +635,35 @@ public sealed class ShareSubmissionService
         };
     }
 
+    private static SqliteConnection OpenReadOnly(string dbPath)
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = dbPath,
+            Mode = SqliteOpenMode.ReadOnly,
+        }.ToString());
+        connection.Open();
+        return connection;
+    }
+
+    private string? ResolveIntroSkipperDbPath()
+    {
+        return File.Exists(_introSkipperDbPath) ? _introSkipperDbPath : null;
+    }
+
     [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities", Justification = "IN-clause placeholders are generated internally and each value is parameterized.")]
     private Dictionary<Guid, IReadOnlyDictionary<string, SegmentRange>> LoadIntroSkipperSegments(List<Guid> itemIds)
     {
-        if (itemIds.Count == 0 || !File.Exists(_introSkipperDbPath))
+        var dbPath = ResolveIntroSkipperDbPath();
+        if (itemIds.Count == 0 || dbPath is null)
         {
             return [];
         }
 
-        var connectionString = new SqliteConnectionStringBuilder
-        {
-            DataSource = _introSkipperDbPath,
-            Mode = SqliteOpenMode.ReadOnly,
-        }.ToString();
-
-        using var connection = new SqliteConnection(connectionString);
-        connection.Open();
-
-        // Support databases from before provenance tracking was added.
-        using var checkCol = connection.CreateCommand();
-        checkCol.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DbSegment') WHERE name = 'IsUserProvided'";
-        var hasIsUserProvided = (long)(checkCol.ExecuteScalar() ?? 0L) > 0;
-
-        using var sourceCheck = connection.CreateCommand();
-        sourceCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DbSegment') WHERE name = 'Source'";
-        var hasSource = (long)(sourceCheck.ExecuteScalar() ?? 0L) > 0;
+        using var connection = OpenReadOnly(dbPath);
 
         // Track each range and its source.
         var tracking = new Dictionary<Guid, Dictionary<string, (SegmentRange Range, bool IsUserProvided)>>();
-
-        var selectFields = "ItemId, Type, Start, End";
-        if (hasIsUserProvided)
-        {
-            selectFields += ", IsUserProvided";
-        }
-
-        if (hasSource)
-        {
-            selectFields += ", Source";
-        }
 
         const int chunkSize = 400;
         for (var offset = 0; offset < itemIds.Count; offset += chunkSize)
@@ -694,9 +684,8 @@ public sealed class ShareSubmissionService
             }
 
             command.CommandText = $"""
-                SELECT {selectFields}
-                FROM DbSegment
-                WHERE Type IN (0, 1, 2, 3)
+                SELECT ItemId, Type, StartTicks / 10000000.0, EndTicks / 10000000.0, Source = 5, Source
+                FROM Segments WHERE State = 0 AND Type IN (0, 1, 2, 3)
                   AND ItemId COLLATE NOCASE IN ({string.Join(",", placeholders)})
                 """;
 
@@ -720,24 +709,16 @@ public sealed class ShareSubmissionService
                     continue;
                 }
 
-                var fieldIndex = 4;
-                var isUserProvided = hasIsUserProvided && !reader.IsDBNull(fieldIndex) && reader.GetBoolean(fieldIndex);
-                if (hasIsUserProvided)
-                {
-                    fieldIndex++;
-                }
+                var isUserProvided = !reader.IsDBNull(4) && reader.GetBoolean(4);
 
-                if (hasSource)
+                // Intro Skipper's CreditsDerived source is the synthetic preview
+                // created from the end of credits by the "assume after credits"
+                // setting. Do not publish it as a real preview. Other preview
+                // sources, including manual segment-editor entries, remain valid.
+                var source = reader.IsDBNull(5) ? (int?)null : reader.GetInt32(5);
+                if (segment.Equals("preview", StringComparison.OrdinalIgnoreCase) && source == 4)
                 {
-                    // Intro Skipper's CreditsDerived source is the synthetic preview
-                    // created from the end of credits by the "assume after credits"
-                    // setting.  Do not publish it as a real preview.  Other preview
-                    // sources, including manual segment-editor entries, remain valid.
-                    var source = reader.IsDBNull(fieldIndex) ? (int?)null : reader.GetInt32(fieldIndex);
-                    if (segment.Equals("preview", StringComparison.OrdinalIgnoreCase) && source == 4)
-                    {
-                        continue;
-                    }
+                    continue;
                 }
 
                 if (!tracking.TryGetValue(itemId, out var perType))
